@@ -267,13 +267,7 @@ function setupEventListeners() {
         try {
             const res = await axios.get('/api/products/', { params: { search: query, limit: 20 } });
             let list = res.data?.items || res.data || [];
-            // Masquer les produits en rupture (aucune variante dispo et stock 0)
-            list = list.filter(p => {
-                const variants = Array.isArray(p.variants) ? p.variants : [];
-                const hasVariants = variants.length > 0;
-                const available = hasVariants ? variants.filter(v => !v.is_sold).length : Number(p.quantity || 0);
-                return available > 0;
-            });
+            // Ne plus masquer les produits épuisés, les afficher avec indication
             // Conserver la dernière liste pour la sélection (fallback si products[] non chargé)
             try { window._latestProductResults = list; } catch (e) {}
             suggestBox.innerHTML = (list.length ? list : [{ __empty: true }]).map(p => {
@@ -285,8 +279,9 @@ function setupEventListeners() {
                 const available = hasVariants ? variants.filter(v => !v.is_sold).length : Number(p.quantity || 0);
                 const stockBadge = `<span class="badge ${available>0?'bg-success':'bg-danger'} ms-2">${available>0?('Stock: '+available):'Rupture'}</span>`;
                 const sub = [p.category, p.brand, p.model].filter(Boolean).join(' • ');
+                const isOutOfStock = available === 0;
                 return `
-                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" data-product-id="${p.product_id}">
+                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center ${isOutOfStock ? 'text-muted' : ''}" data-product-id="${p.product_id}">
                     <div class="me-2">
                         <div class="fw-semibold d-flex align-items-center">${escapeHtml(p.name || '')} ${stockBadge}</div>
                         <div class="text-muted small">${[p.barcode ? 'Code: '+escapeHtml(p.barcode) : '', sub ? escapeHtml(sub) : ''].filter(Boolean).join(' • ')}</div>
@@ -1261,21 +1256,15 @@ function updateInvoiceItemsDisplay() {
                                     ? products
                                     : (Array.isArray(window._latestProductResults) ? window._latestProductResults : [])
                                 )
-                                .filter(product => {
-                                    const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
-                                    const available = variants.length > 0 ? variants.filter(v => !v.is_sold).length : Number(product.quantity || 0);
-                                    // Toujours afficher le produit actuellement sélectionné dans la ligne,
-                                    // même si le stock calculé est 0 (ou non encore chargé)
-                                    const isCurrent = Number(product.product_id) === Number(item.product_id);
-                                    return isCurrent || (available > 0);
-                                })
                                 .map(product => {
                                     const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
                                     const available = variants.length > 0 ? variants.filter(v => !v.is_sold).length : Number(product.quantity || 0);
                                     const alreadySelected = selectedProductIds.has(Number(product.product_id)) && Number(product.product_id) !== Number(item.product_id);
+                                    const isOutOfStock = available === 0;
+                                    const disabled = alreadySelected || isOutOfStock;
                                     return `
-                                <option value="${product.product_id}" ${product.product_id == item.product_id ? 'selected' : ''} ${alreadySelected ? 'disabled' : ''}>
-                                    ${escapeHtml(product.name)} - ${formatCurrency(product.price)} ${available > 0 ? `(Stock: ${available})` : '(épuisé)'} ${alreadySelected ? '(déjà sélectionné)' : ''}
+                                <option value="${product.product_id}" ${product.product_id == item.product_id ? 'selected' : ''} ${disabled ? 'disabled' : ''}>
+                                    ${escapeHtml(product.name)} - ${formatCurrency(product.price)} ${isOutOfStock ? '(épuisé)' : `(Stock: ${available})`} ${alreadySelected ? '(déjà sélectionné)' : ''}
                                 </option>`;
                                 }).join('')}
                         </select>
