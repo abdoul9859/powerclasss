@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: geek_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123
+      POSTGRES_DB: geektechnologie_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: geek_app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # The app reads DATABASE_URL and DB_SSLMODE
+      DATABASE_URL: postgresql://postgres:123@db:5432/geektechnologie_db
+      DB_SSLMODE: disable
+      HOST: 0.0.0.0
+      PORT: "8000"
+      RELOAD: "false"
+      # Optional initial seed flags (toggle as needed)
+      INIT_DB_ON_STARTUP: "true"
+      SEED_DEFAULT_DATA: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    command: ["python", "-u", "start.py"]
+
+volumes:
+  db_data:
+
+
+
