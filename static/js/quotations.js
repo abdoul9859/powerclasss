@@ -187,15 +187,21 @@ function setupEventListeners() {
         try {
             const res = await axios.get('/api/products/', { params: { search: query, limit: 20 } });
             const list = res.data?.items || res.data || [];
-            suggestBox.innerHTML = list.map(p => `
-                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" data-product-id="${p.product_id}">
+            suggestBox.innerHTML = list.map(p => {
+                const variants = Array.isArray(p.variants) ? p.variants : [];
+                const hasVariants = variants.length > 0;
+                const available = hasVariants ? variants.filter(v => !v.is_sold).length : Number(p.quantity || 0);
+                const stockBadge = `<span class="badge ${available>0?'bg-success':'bg-danger'} ms-2">${available>0?('Stock: '+available):'Rupture'}</span>`;
+                const isOutOfStock = available === 0;
+                return `
+                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center ${isOutOfStock ? 'text-muted' : ''}" data-product-id="${p.product_id}">
                     <div>
-                        <div class="fw-semibold">${escapeHtml(p.name)}</div>
+                        <div class="fw-semibold d-flex align-items-center">${escapeHtml(p.name)} ${stockBadge}</div>
                         <div class="text-muted small">${p.barcode ? 'Code: '+escapeHtml(p.barcode) : ''}</div>
                     </div>
                     <div class="text-nowrap ms-3">${formatCurrency(p.price)}</div>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
             suggestBox.classList.toggle('d-none', list.length === 0);
         } catch (err) {
             suggestBox.classList.add('d-none');
