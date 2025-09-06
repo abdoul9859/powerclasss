@@ -27,6 +27,16 @@ class UserResponse(BaseModel):
     class Config:
         from_attributes = True
 
+# Schémas pour les catégories d'achats quotidiens
+class DailyPurchaseCategoryCreate(BaseModel):
+    name: str
+
+class DailyPurchaseCategoryResponse(BaseModel):
+    id: int
+    name: str
+    class Config:
+        from_attributes = True
+
 # Schémas pour les transactions bancaires (simplifiés)
 class BankTransactionCreate(BaseModel):
     # type: "entry" (entrée) ou "exit" (sortie)
@@ -523,5 +533,38 @@ class SupplierInvoicePaymentResponse(BaseModel):
     reference: Optional[str]
     notes: Optional[str]
     
+    class Config:
+        from_attributes = True
+
+# Schémas pour Achats quotidiens
+class DailyPurchaseCreate(BaseModel):
+    date: date
+    category: str
+    supplier: Optional[str] = None
+    description: Optional[str] = None
+    amount: Decimal
+    payment_method: str = 'espece'
+    reference: Optional[str] = None
+
+class DailyPurchaseUpdate(BaseModel):
+    date: Optional[date] = None
+    category: Optional[str] = None
+    supplier: Optional[str] = None
+    description: Optional[str] = None
+    amount: Optional[Decimal] = None
+    payment_method: Optional[str] = None
+    reference: Optional[str] = None
+
+class DailyPurchaseResponse(BaseModel):
+    id: int
+    date: date
+    category: str
+    supplier: Optional[str]
+    description: Optional[str]
+    amount: Decimal
+    payment_method: str
+    reference: Optional[str]
+    created_at: datetime
+
     class Config:
         from_attributes = True

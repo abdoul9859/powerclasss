@@ -408,20 +408,15 @@ async function loadRecentInvoices() {
         
         let html = '<div class="list-group list-group-flush">';
         invoices.forEach(invoice => {
-            const statusClass = {
-                'en attente': 'warning',
-                'payée': 'success',
-                'partiellement payée': 'info',
-                'en retard': 'danger',
-                'annulée': 'secondary'
-            }[invoice.status] || 'secondary';
+            const translatedStatus = translateStatus(invoice.status);
+            const statusClass = getStatusBadgeClass(invoice.status);
             
             html += `
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
                             <strong>${escapeHtml(invoice.invoice_number || '')}</strong>
-                            <span class="badge bg-${statusClass} ms-2">${escapeHtml(invoice.status || '')}</span>
+                            <span class="badge bg-${statusClass} ms-2">${escapeHtml(translatedStatus)}</span>
                             <br>
                             <small class="text-muted">
                                 ${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' })

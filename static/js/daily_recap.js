@@ -34,6 +34,7 @@ async function loadDailyRecap() {
         // Mettre à jour l'affichage
         updateDateDisplay(data.date_formatted);
         updateFinancialSummary(data.finances);
+        updateDailyPurchases(data.daily_purchases);
         updateQuickStats(data);
         updateDetailedTables(data);
         
@@ -85,6 +86,43 @@ function updateDetailedTables(data) {
     // Tables des mouvements de stock
     updateStockEntriesTable(data.stock.entries_list);
     updateStockExitsTable(data.stock.exits_list);
+}
+
+function updateDailyPurchases(dp) {
+    try {
+        const totalEl = document.getElementById('dailyPurchasesTotal');
+        const chips = document.getElementById('dailyPurchasesByCategory');
+        const tbody = document.getElementById('dailyPurchasesTable');
+        if (!dp) {
+            totalEl && (totalEl.textContent = formatCurrency(0));
+            if (chips) chips.innerHTML = '<span class="text-muted">Aucune dépense</span>';
+            if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Aucun achat</td></tr>';
+            return;
+        }
+        totalEl && (totalEl.textContent = formatCurrency(dp.total || 0));
+        if (chips) {
+            const list = Array.isArray(dp.by_category) ? dp.by_category : [];
+            chips.innerHTML = list.length ? list.map(x => `
+                <span class="badge bg-light text-dark">
+                    <span class="text-uppercase">${escapeHtml(x.category || '')}</span>
+                    <span class="ms-1 fw-semibold">${formatCurrency(x.amount || 0)}</span>
+                </span>
+            `).join('') : '<span class="text-muted">Aucune dépense</span>';
+        }
+        if (tbody) {
+            const items = Array.isArray(dp.list) ? dp.list : [];
+            tbody.innerHTML = items.length ? items.map(it => `
+                <tr>
+                    <td>${escapeHtml(it.time || '')}</td>
+                    <td class="text-uppercase"><span class="badge bg-secondary">${escapeHtml(it.category || '')}</span></td>
+                    <td>${escapeHtml(it.description || '')}</td>
+                    <td class="fw-semibold">${formatCurrency(it.amount || 0)}</td>
+                    <td>${escapeHtml(it.method || '')}</td>
+                    <td>${escapeHtml(it.reference || '')}</td>
+                </tr>
+            `).join('') : '<tr><td colspan="6" class="text-center text-muted">Aucun achat</td></tr>';
+        }
+    } catch (e) { console.error(e); }
 }
 
 function updateInvoicesTable(invoices) {
