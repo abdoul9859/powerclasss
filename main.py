@@ -31,7 +31,7 @@ try:
     from app.models.models import Settings as LegacySettings  # type: ignore
 except Exception:
     LegacySettings = None  # type: ignore
-from app.routers import auth, products, clients, stock_movements, invoices, quotations, suppliers, debts, delivery_notes, bank_transactions, reports, user_settings, migrations, cache, dashboard, supplier_invoices, daily_recap
+from app.routers import auth, products, clients, stock_movements, invoices, quotations, suppliers, debts, delivery_notes, bank_transactions, reports, user_settings, migrations, cache, dashboard, supplier_invoices, daily_recap, daily_purchases
 from app.init_db import init_database
 from app.auth import get_current_user
 from app.services.migration_processor import migration_processor
@@ -174,6 +174,7 @@ app.include_router(migrations.router)
 app.include_router(cache.router)
 app.include_router(dashboard.router)
 app.include_router(daily_recap.router)
+app.include_router(daily_purchases.router)
 
 # Route pour le favicon
 @app.get("/favicon.ico")
@@ -295,6 +296,11 @@ async def cache_manager_page(request: Request, db: Session = Depends(get_db)):
 async def daily_recap_page(request: Request, db: Session = Depends(get_db)):
     """Page du récap quotidien"""
     return templates.TemplateResponse("daily_recap.html", {"request": request, "global_settings": _load_company_settings(db)})
+
+@app.get("/daily-purchases", response_class=HTMLResponse)
+async def daily_purchases_page(request: Request, db: Session = Depends(get_db)):
+    """Page des achats quotidiens"""
+    return templates.TemplateResponse("daily_purchases.html", {"request": request, "global_settings": _load_company_settings(db)})
 
 # ===================== PRINT ROUTES (Invoice, Delivery Note) =====================
 

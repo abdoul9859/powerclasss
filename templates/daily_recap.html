@@ -84,6 +84,44 @@
     </div>
 </div>
 
+<!-- Achats quotidiens -->
+<div class="row mb-4">
+  <div class="col-12">
+    <div class="card border-secondary">
+      <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-basket2 me-2"></i>Achats quotidiens</h5>
+        <div class="fw-bold" id="dailyPurchasesTotal">0 F CFA</div>
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+          <div class="small text-muted mb-1">Par catégorie</div>
+          <div id="dailyPurchasesByCategory" class="d-flex flex-wrap gap-2">
+            <span class="text-muted">Aucune dépense</span>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Heure</th>
+                <th>Catégorie</th>
+                <th>Description</th>
+                <th>Montant</th>
+                <th>Méthode</th>
+                <th>Référence</th>
+              </tr>
+            </thead>
+            <tbody id="dailyPurchasesTable">
+              <tr><td colspan="6" class="text-center text-muted">Aucun achat enregistré pour ce jour</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+</div>
+
 <!-- Statistiques Rapides -->
 <div class="row mb-4">
     <div class="col-md-3 col-sm-6 mb-3">

@@ -6,6 +6,47 @@ try {
     }
 } catch (e) {}
 
+// Fonction globale de traduction des statuts
+function translateStatus(status) {
+    const s = String(status || '').trim();
+    switch (s.toUpperCase()) {
+        case 'PAID': return 'Payée';
+        case 'SENT': return 'Envoyée';
+        case 'DRAFT': return 'Brouillon';
+        case 'OVERDUE': return 'En retard';
+        case 'CANCELLED': return 'Annulée';
+        case 'PARTIALLY_PAID': return 'Partiellement payée';
+        default:
+            // Garder les statuts français existants
+            const sLower = s.toLowerCase();
+            if (sLower === 'en attente') return 'En attente';
+            if (sLower === 'payée') return 'Payée';
+            if (sLower === 'partiellement payée') return 'Partiellement payée';
+            if (sLower === 'accepté') return 'Accepté';
+            if (sLower === 'refusé') return 'Refusé';
+            if (sLower === 'expiré') return 'Expiré';
+            return s || 'Inconnu';
+    }
+}
+
+// Fonction globale pour obtenir la classe CSS du statut
+function getStatusBadgeClass(status) {
+    const translatedStatus = translateStatus(status);
+    const statusClasses = {
+        'En attente': 'warning',
+        'Payée': 'success',
+        'Partiellement payée': 'info',
+        'En retard': 'danger',
+        'Annulée': 'secondary',
+        'Envoyée': 'primary',
+        'Brouillon': 'secondary',
+        'Accepté': 'success',
+        'Refusé': 'danger',
+        'Expiré': 'warning'
+    };
+    return statusClasses[translatedStatus] || 'secondary';
+}
+
 // Fonction utilitaire global pour charger des données avec timeout et gestion d'erreur
 async function safeLoadData(apiCall, options = {}) {
     const {

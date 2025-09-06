@@ -8,7 +8,8 @@ import logging
 from ..database import (
     get_db, User, Invoice, InvoiceItem, InvoicePayment, 
     Quotation, Product, StockMovement, SupplierInvoice,
-    SupplierInvoicePayment, BankTransaction, Client
+    SupplierInvoicePayment, BankTransaction, Client,
+    DailyPurchase
 )
 from ..auth import get_current_user
 
@@ -131,6 +132,31 @@ async def get_daily_recap_stats(
             logging.error(f"Erreur lors du chargement des sorties bancaires: {e}")
             bank_exits = []
         
+        # === ACHATS QUOTIDIENS ===
+        try:
+            daily_purchases = db.query(DailyPurchase).filter(
+                (DailyPurchase.date == recap_date) | (func.date(DailyPurchase.created_at) == recap_date)
+            ).all()
+        except Exception as e:
+            logging.error(f"Erreur chargement achats quotidiens: {e}")
+            daily_purchases = []
+
+        total_daily_purchases = sum(float(p.amount or 0) for p in daily_purchases)
+        # Répartition par catégorie
+        try:
+            by_cat_rows = (
+                db.query(DailyPurchase.category, func.coalesce(func.sum(DailyPurchase.amount), 0))
+                .filter((DailyPurchase.date == recap_date) | (func.date(DailyPurchase.created_at) == recap_date))
+                .group_by(DailyPurchase.category)
+                .all()
+            )
+        except Exception:
+            by_cat_rows = []
+        by_category = [
+            {"category": (c or ""), "amount": float(a or 0)}
+            for c, a in by_cat_rows
+        ]
+
         # === CALCULS FINANCIERS ===
         # Total des paiements reçus
         total_payments = sum(float(p.amount or 0) for p in payments_received)
@@ -141,7 +167,7 @@ async def get_daily_recap_stats(
         # Total des sorties bancaires  
         total_bank_exits = sum(float(t.amount or 0) for t in bank_exits)
         
-        # Solde du jour
+        # Solde du jour (sans achats quotidiens, affichés séparément)
         daily_balance = total_payments + total_bank_entries - total_bank_exits
         
         # Chiffre d'affaires potentiel (factures créées)
@@ -272,6 +298,24 @@ async def get_daily_recap_stats(
                         "reference": t.reference
                     }
                     for t in bank_exits
+                ]
+            },
+            # Achats quotidiens
+            "daily_purchases": {
+                "count": len(daily_purchases),
+                "total": float(total_daily_purchases),
+                "by_category": by_category,
+                "list": [
+                    {
+                        "id": dp.id,
+                        "time": (dp.created_at.strftime("%H:%M") if getattr(dp, 'created_at', None) else ""),
+                        "category": dp.category,
+                        "description": dp.description,
+                        "amount": float(dp.amount or 0),
+                        "method": dp.payment_method,
+                        "reference": dp.reference,
+                    }
+                    for dp in daily_purchases
                 ]
             }
         }

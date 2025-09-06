@@ -103,6 +103,39 @@ class Client(Base):
     notes = Column(Text)
     created_at = Column(DateTime, default=func.now())
 
+# Achats quotidiens (petites dépenses)
+class DailyPurchase(Base):
+    __tablename__ = "daily_purchases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # Date de l'achat (jour civil)
+    date = Column(Date, nullable=False, index=True)
+    # Catégorie simple: café, eau, électricité, transport, fournitures, autres
+    category = Column(String(50), nullable=False, index=True)
+    # Fournisseur ou source libre (ex: "Boutique du coin")
+    supplier = Column(String(100))
+    # Description libre
+    description = Column(Text)
+    # Montant TTC
+    amount = Column(Numeric(12, 2), nullable=False)
+    # Méthode: espece | mobile | virement | cheque
+    payment_method = Column(String(20), default="espece", index=True)
+    # Référence/Justif optionnelle
+    reference = Column(String(100))
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index('ix_daily_purchases_date_category', 'date', 'category'),
+    )
+
+# Paramétrage des catégories d'achats quotidiens
+class DailyPurchaseCategory(Base):
+    __tablename__ = "daily_purchase_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=func.now())
+
 class Category(Base):
     __tablename__ = "categories"
     
