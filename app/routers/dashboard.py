@@ -120,10 +120,23 @@ async def get_dashboard_stats(
             monthly_revenue = float(monthly_revenue_gross) - float(monthly_supplier_payments) - float(monthly_purchases)
             
             # Montant impayé
-            unpaid_statuses = ["en attente", "partiellement payée", "OVERDUE"]
+            # Montant impayé robuste (gère imports incohérents)
+            # 1) Essayer via remaining_amount pour les statuts impayés connus
+            unpaid_statuses = [
+                "en attente", "En attente", "EN ATTENTE",
+                "partiellement payée", "partiellement payee", "PARTIELLEMENT PAYEE",
+                "OVERDUE", "en retard", "En retard"
+            ]
             unpaid_amount = db.query(func.coalesce(func.sum(Invoice.remaining_amount), 0)).filter(
-                Invoice.status.in_(unpaid_statuses)
+                or_(Invoice.status.in_(unpaid_statuses), (Invoice.remaining_amount > 0))
             ).scalar() or 0
+            # 2) Fallback si 0: recalculer comme somme(max(total - paid_amount, 0))
+            if float(unpaid_amount or 0) <= 0:
+                unpaid_amount = db.query(
+                    func.coalesce(func.sum(
+                        func.greatest(func.coalesce(Invoice.total, 0) - func.coalesce(Invoice.paid_amount, 0), 0)
+                    ), 0)
+                ).scalar() or 0
             
             # 3. KPIs avancés (période 30 jours)
             since_30 = now - timedelta(days=30)
