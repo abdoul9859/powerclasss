@@ -167,11 +167,12 @@ async def get_daily_recap_stats(
         # Total des sorties bancaires  
         total_bank_exits = sum(float(t.amount or 0) for t in bank_exits)
         
-        # Solde du jour (sans achats quotidiens, affichés séparément)
-        daily_balance = total_payments + total_bank_entries - total_bank_exits
+        # Solde du jour (déduction des Achats quotidiens)
+        daily_balance = total_payments + total_bank_entries - total_bank_exits - total_daily_purchases
         
         # Chiffre d'affaires potentiel (factures créées)
         potential_revenue = sum(float(inv.total or 0) for inv in invoices_created)
+        net_revenue = potential_revenue - float(total_daily_purchases)
         
         # === PRÉPARATION DES DONNÉES ===
         return {
@@ -275,8 +276,10 @@ async def get_daily_recap_stats(
                 "payments_received": total_payments,
                 "bank_entries": total_bank_entries,
                 "bank_exits": total_bank_exits,
+                "daily_purchases_total": float(total_daily_purchases),
                 "daily_balance": daily_balance,
                 "potential_revenue": potential_revenue,
+                "net_revenue": net_revenue,
                 "bank_entries_list": [
                     {
                         "id": t.transaction_id,
