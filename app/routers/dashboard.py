@@ -12,6 +12,7 @@ from ..database import (
     Invoice, InvoiceItem, InvoicePayment, Quotation, Product, ProductVariant,
     Client, StockMovement, SupplierInvoice, SupplierInvoicePayment
 )
+from ..database import DailyPurchase
 from ..auth import get_current_user
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -101,6 +102,13 @@ async def get_dashboard_stats(
                 func.extract('year', Invoice.date) == today.year,
                 Invoice.status.in_(paid_statuses)
             ).scalar() or 0
+            # Achats quotidiens du mois (par date ou created_at)
+            monthly_purchases = db.query(func.coalesce(func.sum(DailyPurchase.amount), 0)).filter(
+                or_(
+                    and_(func.extract('month', DailyPurchase.date) == today.month, func.extract('year', DailyPurchase.date) == today.year),
+                    and_(func.extract('month', DailyPurchase.created_at) == today.month, func.extract('year', DailyPurchase.created_at) == today.year),
+                )
+            ).scalar() or 0
             
             # Paiements aux fournisseurs du mois
             monthly_supplier_payments = db.query(func.coalesce(func.sum(SupplierInvoice.paid_amount), 0)).filter(
@@ -108,8 +116,8 @@ async def get_dashboard_stats(
                 func.extract('year', SupplierInvoice.invoice_date) == today.year
             ).scalar() or 0
             
-            # Chiffre d'affaires net = revenus - paiements fournisseurs
-            monthly_revenue = float(monthly_revenue_gross) - float(monthly_supplier_payments)
+            # Chiffre d'affaires net = revenus - paiements fournisseurs - achats quotidiens du mois
+            monthly_revenue = float(monthly_revenue_gross) - float(monthly_supplier_payments) - float(monthly_purchases)
             
             # Montant impayé
             unpaid_statuses = ["en attente", "partiellement payée", "OVERDUE"]
@@ -131,14 +139,17 @@ async def get_dashboard_stats(
                 Invoice.date >= since_30.date(),
                 Invoice.status.in_(paid_statuses)
             ).scalar() or 0
+            purchases_30d = db.query(func.coalesce(func.sum(DailyPurchase.amount), 0)).filter(
+                or_(DailyPurchase.date >= since_30.date(), func.date(DailyPurchase.created_at) >= since_30.date())
+            ).scalar() or 0
             
             # Paiements aux fournisseurs sur 30 jours
             supplier_payments_30d = db.query(func.coalesce(func.sum(SupplierInvoicePayment.amount), 0)).filter(
                 SupplierInvoicePayment.payment_date >= since_30.date()
             ).scalar() or 0
             
-            # Revenus nets sur 30 jours
-            total_revenue_30d = float(total_revenue_30d_gross) - float(supplier_payments_30d)
+            # Revenus nets sur 30 jours (déduction achats quotidiens)
+            total_revenue_30d = float(total_revenue_30d_gross) - float(supplier_payments_30d) - float(purchases_30d)
             avg_ticket = float(total_revenue_30d / num_invoices_30d) if num_invoices_30d > 0 else 0.0
             
             # Taux de conversion devis->factures (30 jours)
@@ -209,6 +220,9 @@ async def get_dashboard_stats(
                 "total_stock": int(total_stock),
                 "pending_invoices": int(pending_invoices),
                 "monthly_revenue": float(monthly_revenue),
+                "monthly_revenue_gross": float(monthly_revenue_gross),
+                "monthly_supplier_payments": float(monthly_supplier_payments),
+                "monthly_daily_purchases": float(monthly_purchases),
                 "unpaid_amount": float(unpaid_amount),
                 
                 # KPIs avancés
@@ -225,7 +239,10 @@ async def get_dashboard_stats(
                 
                 # Meta
                 "cached_at": datetime.now().isoformat(),
-                "period_days": 30
+                "period_days": 30,
+                "purchases_30d": float(purchases_30d),
+                "revenue_30d_gross": float(total_revenue_30d_gross),
+                "supplier_payments_30d": float(supplier_payments_30d)
             }
         
         result = _get_cached_or_compute(cache_key, compute_stats)

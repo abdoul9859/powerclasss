@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, and_, or_
 from typing import List, Optional
 from datetime import datetime, date
 from ..database import (
@@ -16,6 +16,7 @@ from ..database import (
     SupplierInvoice,
     SupplierInvoicePayment,
 )
+from ..database import DailyPurchase
 from ..schemas import InvoiceCreate, InvoiceResponse, InvoiceItemResponse
 from ..auth import get_current_user
 from ..routers.stock_movements import create_stock_movement
@@ -1018,6 +1019,14 @@ async def get_invoice_stats(
             func.extract('year', Invoice.date) == today.year,
             Invoice.status.in_(["payée", "PAID"])
         ).scalar() or 0
+
+        # Achats quotidiens du mois (par date ou created_at)
+        monthly_daily_purchases = db.query(func.coalesce(func.sum(DailyPurchase.amount), 0)).filter(
+            or_(
+                and_(func.extract('month', DailyPurchase.date) == today.month, func.extract('year', DailyPurchase.date) == today.year),
+                and_(func.extract('month', DailyPurchase.created_at) == today.month, func.extract('year', DailyPurchase.created_at) == today.year),
+            )
+        ).scalar() or 0
         
         # Paiements aux fournisseurs du mois
         monthly_supplier_payments = db.query(func.sum(SupplierInvoice.paid_amount)).filter(
@@ -1025,8 +1034,8 @@ async def get_invoice_stats(
             func.extract('year', SupplierInvoice.invoice_date) == today.year
         ).scalar() or 0
         
-        # Chiffre d'affaires net du mois
-        monthly_revenue = float(monthly_revenue_gross or 0) - float(monthly_supplier_payments or 0)
+        # Chiffre d'affaires net du mois (déduction achats quotidiens)
+        monthly_revenue = float(monthly_revenue_gross or 0) - float(monthly_supplier_payments or 0) - float(monthly_daily_purchases or 0)
         
         # Chiffre d'affaires total brut (toutes factures payées)
         total_revenue_gross = db.query(func.sum(Invoice.total)).filter(Invoice.status.in_(["payée", "PAID"])).scalar() or 0
@@ -1034,8 +1043,11 @@ async def get_invoice_stats(
         # Total des paiements aux fournisseurs
         total_supplier_payments = db.query(func.sum(SupplierInvoice.paid_amount)).scalar() or 0
         
-        # Chiffre d'affaires total net
-        total_revenue = float(total_revenue_gross or 0) - float(total_supplier_payments or 0)
+        # Total des achats quotidiens (toute période)
+        total_daily_purchases = db.query(func.coalesce(func.sum(DailyPurchase.amount), 0)).scalar() or 0
+        
+        # Chiffre d'affaires total net (déduction achats quotidiens)
+        total_revenue = float(total_revenue_gross or 0) - float(total_supplier_payments or 0) - float(total_daily_purchases or 0)
         
         # Montant impayé (restant)
         unpaid_amount = db.query(func.sum(Invoice.remaining_amount)).filter(Invoice.status.in_(["en attente", "partiellement payée", "OVERDUE"])) .scalar() or 0
@@ -1050,7 +1062,13 @@ async def get_invoice_stats(
                 "pending_invoices": pending_invoices,
                 "paid_invoices": paid_invoices,
                 "monthly_revenue": float(monthly_revenue),
+                "monthly_revenue_gross": float(monthly_revenue_gross),
+                "monthly_supplier_payments": float(monthly_supplier_payments),
+                "monthly_daily_purchases": float(monthly_daily_purchases),
                 "total_revenue": float(total_revenue),
+                "total_revenue_gross": float(total_revenue_gross),
+                "total_supplier_payments": float(total_supplier_payments),
+                "total_daily_purchases": float(total_daily_purchases),
                 "unpaid_amount": float(unpaid_amount)
             }
         

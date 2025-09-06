@@ -63,6 +63,17 @@ function updateFinancialSummary(finances) {
     
     // Couleur du solde selon positif/négatif
     balanceElement.className = balance >= 0 ? 'h4 text-success mb-1' : 'h4 text-danger mb-1';
+
+    // Achats quotidiens (déduits) et CA net
+    const dpOut = document.getElementById('dailyPurchasesOut');
+    if (dpOut) dpOut.textContent = formatCurrency(finances.daily_purchases_total || 0);
+    const netRevEl = document.getElementById('netRevenue');
+    if (netRevEl) {
+        const net = (finances.net_revenue !== undefined && finances.net_revenue !== null)
+            ? finances.net_revenue
+            : (Number(finances.potential_revenue || 0) - Number(finances.daily_purchases_total || 0));
+        netRevEl.textContent = formatCurrency(net);
+    }
 }
 
 function updateQuickStats(data) {
