@@ -40,10 +40,11 @@ async def get_daily_recap_stats(
         
         # === FACTURES ===
         try:
-            # Factures créées ce jour avec relation client
+            # Factures créées ce jour avec relations client et paiements
             from sqlalchemy.orm import joinedload
             invoices_created = db.query(Invoice).options(
-                joinedload(Invoice.client)
+                joinedload(Invoice.client),
+                joinedload(Invoice.payments)
             ).filter(
                 func.date(Invoice.created_at) == recap_date
             ).all()
@@ -170,9 +171,10 @@ async def get_daily_recap_stats(
         # Solde du jour (déduction des Achats quotidiens)
         daily_balance = total_payments + total_bank_entries - total_bank_exits - total_daily_purchases
         
-        # Chiffre d'affaires potentiel (factures créées)
+        # Chiffre d'affaires facturé (pour info)
         potential_revenue = sum(float(inv.total or 0) for inv in invoices_created)
-        net_revenue = potential_revenue - float(total_daily_purchases)
+        # Chiffre d'affaires encaissé net (aligné avec la caisse): paiements reçus - achats quotidiens
+        net_revenue = float(total_payments) - float(total_daily_purchases)
         
         # === PRÉPARATION DES DONNÉES ===
         return {
@@ -184,14 +186,18 @@ async def get_daily_recap_stats(
                 "created_count": len(invoices_created),
                 "created_total": potential_revenue,
                 "created_list": [
-                    {
+                    (lambda inv: {
                         "id": inv.invoice_id,
                         "number": inv.invoice_number,
                         "client_name": inv.client.name if inv.client else "Client inconnu",
                         "total": float(inv.total or 0),
-                        "status": inv.status,
+                        # Statut recalculé selon paiements cumulés (évite états obsolètes)
+                        "status": (
+                            "payée" if sum(float(p.amount or 0) for p in (inv.payments or [])) >= float(inv.total or 0) else
+                            ("partiellement payée" if sum(float(p.amount or 0) for p in (inv.payments or [])) > 0 else "en attente")
+                        ),
                         "time": inv.created_at.strftime("%H:%M") if inv.created_at else ""
-                    }
+                    })(inv)
                     for inv in invoices_created
                 ]
             },
