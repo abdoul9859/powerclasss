@@ -192,9 +192,18 @@ async def api_status():
     }
 
 # Routes pour l'interface web
+# Nouvelle page d'accueil: Desktop (Launchpad + fenêtres)
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request, db: Session = Depends(get_db)):
-    """Page d'accueil - Dashboard"""
+async def desktop_home(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse("desktop.html", {"request": request, "global_settings": _load_company_settings(db)})
+
+@app.get("/desktop", response_class=HTMLResponse)
+async def desktop_alias(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse("desktop.html", {"request": request, "global_settings": _load_company_settings(db)})
+
+# Ancien dashboard accessible via /dashboard (utilisé par l'app Desktop)
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_legacy(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("dashboard.html", {"request": request, "global_settings": _load_company_settings(db)})
 
 @app.get("/login", response_class=HTMLResponse)

@@ -37,8 +37,8 @@ async function loadQuotationDetail(quotationId) {
 
 async function preloadQuotationIntoForm(quotationId) {
     const { data: q } = await axios.get(`/api/quotations/${quotationId}`);
-    openQuotationModal();
-    document.getElementById('quotationModalTitle').innerHTML = '<i class="bi bi-pencil me-2"></i>Modifier le Devis';
+    openQuotationModal(true);
+    document.getElementById('quotationModalTitle').innerHTML = '<i class=\"bi bi-pencil me-2\"></i>Modifier le Devis';
     document.getElementById('quotationId').value = q.quotation_id;
     document.getElementById('quotationNumber').value = q.quotation_number;
     document.getElementById('quotationDate').value = (q.date || '').split('T')[0] || '';
@@ -719,7 +719,7 @@ function renderQuotationsPagination(page, total) {
 }
 
 // Ouvrir le modal pour nouveau devis
-function openQuotationModal() {
+function openQuotationModal(isEdit = false) {
     document.getElementById('quotationModalTitle').innerHTML = '<i class="bi bi-plus-circle me-2"></i>Nouveau Devis';
     document.getElementById('quotationForm').reset();
     document.getElementById('quotationId').value = '';
@@ -734,26 +734,31 @@ function openQuotationModal() {
     } catch(e) {}
     setDefaultDates();
     
-    // Pré-remplir un numéro de devis fiable depuis le serveur
+    // Pré-remplir un numéro depuis le serveur uniquement en création (évite d'écraser en édition)
     try {
         const input = document.getElementById('quotationNumber');
         if (input) {
-            input.value = '';
-            input.placeholder = 'Chargement du numéro...';
-            axios.get('/api/quotations/next-number').then(({ data }) => {
-                if (data && data.quotation_number) {
-                    input.value = data.quotation_number;
-                    input.placeholder = '';
-                } else {
-                    // Laisser vide: le backend générera automatiquement un numéro séquentiel
+            if (!isEdit) {
+                input.value = '';
+                input.placeholder = 'Chargement du numéro...';
+                axios.get('/api/quotations/next-number').then(({ data }) => {
+                    if (data && data.quotation_number) {
+                        input.value = data.quotation_number;
+                        input.placeholder = '';
+                    } else {
+                        // Laisser vide: le backend générera automatiquement un numéro séquentiel
+                        input.value = '';
+                        input.placeholder = 'Sera généré automatiquement';
+                    }
+                }).catch(() => {
+                    // En cas d'échec API, laisser le serveur générer le numéro
                     input.value = '';
                     input.placeholder = 'Sera généré automatiquement';
-                }
-            }).catch(() => {
-                // En cas d'échec API, laisser le serveur générer le numéro
-                input.value = '';
-                input.placeholder = 'Sera généré automatiquement';
-            });
+                });
+            } else {
+                // En édition: ne pas modifier le numéro existant
+                input.placeholder = '';
+            }
         }
     } catch(e) { /* ignore */ }
     

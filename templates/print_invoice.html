@@ -12,6 +12,9 @@
             --primary-color: #2c3e50;
             --secondary-color: #34495e;
             --accent-color: #3498db;
+            --success: #16a34a;
+            --warning: #f59e0b;
+            --danger: #ef4444;
             --text-primary: #2c3e50;
             --text-secondary: #7f8c8d;
             --border-color: #ecf0f1;
@@ -65,8 +68,9 @@
         .products { flex: 1; display: flex; flex-direction: column; width: calc(100% - 60px); margin: 16px 30px 0; background: #fff; border-radius: 0; overflow: hidden; }
         .products-header { display: grid; grid-template-columns: 1fr 80px 120px 120px; background: #f8f9fa; padding: 12px 16px; font-size: 12px; font-weight: 600; color: #333; text-transform: uppercase; border: 1px solid #ddd; border-bottom: 2px solid #333; }
         .product-row { display: grid; grid-template-columns: 1fr 80px 120px 120px; padding: 12px 16px; border-bottom: 1px solid #eee; }
+        .product-row:nth-child(odd) { background: #fcfcfd; }
         .product-name { font-weight: 500; font-size: 13px; color: var(--text-primary); padding-right: 12px; }
-        .product-qty, .product-price, .product-total { text-align: right; font-size: 13px; }
+        .product-qty, .product-price, .product-total { text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; }
         .imei { color: #666; font-size: 11px; margin-top: 4px; }
         .product-desc { color: #777; font-size: 10px; margin-top: 3px; text-align: justify; }
 
@@ -80,6 +84,11 @@
         .totals-row.grand { border-top: 2px solid #d1d5db; margin-top: 4px; padding-top: 10px; }
         .totals-row.grand .totals-label { color: #111827; font-weight: 700; }
         .totals-row.grand .totals-value { color: #111827; font-size: 15px; }
+
+        .badge { display:inline-block; padding: 4px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .3px; }
+        .badge.success { background: rgba(22,163,74,.1); color: #166534; border: 1px solid rgba(22,163,74,.25); }
+        .badge.warning { background: rgba(245,158,11,.1); color: #92400e; border: 1px solid rgba(245,158,11,.25); }
+        .badge.danger { background: rgba(239,68,68,.1); color: #7f1d1d; border: 1px solid rgba(239,68,68,.25); }
 
         .footer { padding: 16px 28px; border-top: 1px solid #e0e0e0; font-size: 11px; width: 100%; margin-top: auto; background: #f8f9fa; }
         .footer-content { display: flex; justify-content: space-between; gap: 16px; }
@@ -141,10 +150,28 @@
                     </div>
                 </div>
                 <div style="flex:1">
-                    <div class="section-title">Paiement</div>
-                    <div class="payment-box">
-                        <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase">Méthode</div>
-                        <div style="font-size:16px;font-weight:600;color:var(--primary-color);">{{ resolved_payment_method or invoice.payment_method or 'Non spécifié' }}</div>
+                    <div class="section-title">Informations facture</div>
+                    <div class="payment-box" style="display:flex; flex-direction:column; gap:8px;">
+                        <div>
+                            <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase">Méthode</div>
+                            <div style="font-size:16px;font-weight:600;color:var(--primary-color);">{{ resolved_payment_method or invoice.payment_method or 'Non spécifié' }}</div>
+                        </div>
+                        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                            {% set _st = (invoice.status or '')|lower %}
+                            {% set _cls = 'warning' %}
+                            {% if 'payée' in _st or 'paye' in _st or 'paid' in _st %}{% set _cls = 'success' %}{% endif %}
+                            {% if 'overdue' in _st or 'retard' in _st or 'annul' in _st %}{% set _cls = 'danger' %}{% endif %}
+                            <div>
+                                <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;">Statut</div>
+                                <span class="badge {{ _cls }}">{{ invoice.status or '—' }}</span>
+                            </div>
+                            {% if invoice.due_date %}
+                            <div>
+                                <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;">Échéance</div>
+                                <div style="font-size:13px;color:var(--primary-color); font-weight:600">{{ invoice.due_date | format_date }}</div>
+                            </div>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -183,13 +210,13 @@
                         {% if invoice.show_tax %}
                         <div class="totals-row"><div class="totals-label">TVA ({{ (invoice.tax_rate or 0)|round(0, 'common')|int }}%)</div><div class="totals-value">{{ (invoice.tax_amount or 0) | format_cfa }}</div></div>
                         {% endif %}
-                    <div class="totals-row grand"><div class="totals-label">Total</div><div class="totals-value">{{ (invoice.total or 0) | format_cfa }}</div></div>
-                    {% set _st = (invoice.status or '')|lower %}
-                    {% set show_payment_rows = _st in ['partiellement payée', 'partiellement payee', 'partially paid', 'partially_paid'] %}
-                    {% if show_payment_rows %}
-                    <div class="totals-row"><div class="totals-label">Déjà payé</div><div class="totals-value">{{ (invoice.paid_amount or 0) | format_cfa }}</div></div>
-                    <div class="totals-row"><div class="totals-label">Montant dû</div><div class="totals-value">{{ (invoice.remaining_amount or 0) | format_cfa }}</div></div>
-                    {% endif %}
+                        <div class="totals-row grand"><div class="totals-label">Total</div><div class="totals-value">{{ (invoice.total or 0) | format_cfa }}</div></div>
+                        {% set _st = (invoice.status or '')|lower %}
+                        {% set show_payment_rows = _st in ['partiellement payée', 'partiellement payee', 'partially paid', 'partially_paid'] %}
+                        {% if show_payment_rows %}
+                        <div class="totals-row"><div class="totals-label">Déjà payé</div><div class="totals-value">{{ (invoice.paid_amount or 0) | format_cfa }}</div></div>
+                        <div class="totals-row"><div class="totals-label">Montant dû</div><div class="totals-value">{{ (invoice.remaining_amount or 0) | format_cfa }}</div></div>
+                        {% endif %}
                     </div>
                 </div>
             </div>

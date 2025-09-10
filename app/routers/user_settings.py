@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import Dict, Any, Optional, List
@@ -421,3 +421,110 @@ async def delete_cache_value(
         return {"message": "Valeur supprimée du cache"}
     
     raise HTTPException(status_code=404, detail="Clé de cache non trouvée")
+
+# ==================== WALLPAPER UPLOAD ====================
+
+@router.post("/upload/wallpaper")
+async def upload_wallpaper(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Upload a wallpaper image under static/uploads/wallpapers and return its public URL.
+    Accepted types: image/jpeg, image/png, image/webp, image/gif, image/svg+xml
+    """
+    import os, re, time
+    from pathlib import Path
+
+    allowed = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"}
+    if (file.content_type or "").lower() not in allowed:
+        raise HTTPException(status_code=400, detail="Type de fichier non supporté")
+
+    uploads_dir = Path("static/uploads/wallpapers")
+    try:
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    # Sanitize filename
+    original = file.filename or "wallpaper"
+    safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", original)
+    ts = int(time.time())
+    # keep extension if present
+    if "." in safe:
+        name, ext = safe.rsplit(".", 1)
+        out_name = f"wp_{current_user.user_id}_{ts}.{ext}"
+    else:
+        out_name = f"wp_{current_user.user_id}_{ts}"
+
+    out_path = uploads_dir / out_name
+    try:
+        with out_path.open("wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'envoi: {e}")
+
+    public_url = f"/static/uploads/wallpapers/{out_name}"
+
+    # Persist as the current user's app setting (theme.desktopBackground)
+    # Store in UserSettings with key 'appSettings' merged
+    try:
+        # Load existing appSettings
+        setting = db.query(UserSettings).filter(
+            and_(UserSettings.user_id == current_user.user_id, UserSettings.setting_key == 'appSettings')
+        ).first()
+        payload = {}
+        if setting and setting.setting_value:
+            try:
+                payload = json.loads(setting.setting_value) or {}
+            except Exception:
+                payload = {}
+        theme = payload.get('theme') or {}
+        theme['desktopBackground'] = public_url
+        payload['theme'] = theme
+        serialized = json.dumps(payload, ensure_ascii=False)
+        if setting:
+            setting.setting_value = serialized
+            setting.updated_at = datetime.now()
+        else:
+            setting = UserSettings(user_id=current_user.user_id, setting_key='appSettings', setting_value=serialized)
+            db.add(setting)
+        db.commit()
+    except Exception:
+        # Non bloquant: on retourne quand même l'URL
+        db.rollback()
+
+    return {"url": public_url}
+
+@router.post("/wallpaper/reset")
+async def reset_wallpaper(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Reset the desktop background setting for the current user."""
+    # Clear from appSettings.theme.desktopBackground
+    setting = db.query(UserSettings).filter(
+        and_(UserSettings.user_id == current_user.user_id, UserSettings.setting_key == 'appSettings')
+    ).first()
+    if setting and setting.setting_value:
+        try:
+            payload = json.loads(setting.setting_value) or {}
+            if isinstance(payload.get('theme'), dict) and 'desktopBackground' in payload['theme']:
+                payload['theme'].pop('desktopBackground', None)
+                setting.setting_value = json.dumps(payload, ensure_ascii=False)
+                setting.updated_at = datetime.now()
+                db.commit()
+        except Exception:
+            db.rollback()
+    # Also remove legacy key if present
+    legacy = db.query(UserSettings).filter(
+        and_(UserSettings.user_id == current_user.user_id, UserSettings.setting_key == 'DESKTOP_BACKGROUND')
+    ).first()
+    if legacy:
+        db.delete(legacy)
+        db.commit()
+    return {"message": "Fond d'écran réinitialisé"}
