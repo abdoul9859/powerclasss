@@ -12,15 +12,17 @@
   <link href="/static/css/desktop.css?v={{ ASSET_VERSION }}" rel="stylesheet">
   <style>
     /* Ensure user indicator + logout stay visible at top-right above the launchpad */
-    .top-right-actions {
+.top-right-actions {
       position: fixed;
       top: 16px;
       right: 24px;
       display: flex;
       align-items: center;
       gap: 16px; /* add a bit more spacing */
-      z-index: 3000; /* higher than launchpad overlay */
+      z-index: 0; /* behind windows; stays visible when no window */
+      pointer-events: none; /* avoid blocking interactions with windows */
     }
+    .top-right-actions button { pointer-events: auto; }
     .top-right-actions .user-chip {
       display: inline-flex;
       align-items: center;
@@ -41,13 +43,16 @@
       background: rgba(255,255,255,0.14);
       font-size: 12px;
     }
-    .top-right-actions .logout-btn, .lp-actions .btn-logout {
+    .top-right-actions .logout-btn, .lp-actions .btn-logout, .top-right-actions .refresh-btn {
       border: none;
       border-radius: 10px;
       padding: 8px 12px;
       background: rgba(255, 87, 87, 0.15);
       color: #fff;
       cursor: pointer;
+    }
+    .top-right-actions .refresh-btn {
+      background: rgba(13, 110, 253, 0.25); /* Bootstrap primary tint */
     }
     .top-right-actions .logout-btn {
       position: relative; /* ensure it doesn't overlap */
@@ -86,6 +91,9 @@
         <span class="user-name">Utilisateur</span>
         <span class="user-role-badge">user</span>
       </div>
+      <button id="refreshBtn" class="refresh-btn" onclick="location.reload();" title="Actualiser la fenêtre">
+        <i class="bi bi-arrow-clockwise"></i>
+      </button>
       <button id="logoutBtn" class="logout-btn" onclick="logout()" title="Se déconnecter">
         <i class="bi bi-box-arrow-right"></i>
       </button>
