@@ -118,6 +118,7 @@
         </div>
         <div class="win-title">${escapeHtml(app.title)}</div>
         <div class="win-actions">
+          <button class="btn btn-sm btn-outline-light win-refresh" title="Actualiser"><i class="bi bi-arrow-clockwise"></i></button>
           <button class="btn btn-sm btn-outline-light tile-left">Gauche</button>
           <button class="btn btn-sm btn-outline-light tile-right">Droite</button>
           <button class="btn btn-sm btn-outline-light tile-full">Plein</button>
@@ -164,10 +165,12 @@
     const btnLeft = w.el.querySelector('.win-actions .tile-left');
     const btnRight = w.el.querySelector('.win-actions .tile-right');
     const btnFull = w.el.querySelector('.win-actions .tile-full');
-    [btnLeft, btnRight, btnFull].forEach(btn => btn.addEventListener('mousedown', (e)=>{ e.stopPropagation(); }));
-    btnLeft.addEventListener('click', (e) => { e.stopPropagation(); tileWindow(w, 'left'); updateLaunchpadVisibility(); });
-    btnRight.addEventListener('click', (e) => { e.stopPropagation(); tileWindow(w, 'right'); updateLaunchpadVisibility(); });
-    btnFull.addEventListener('click', (e) => { e.stopPropagation(); tileWindow(w, 'full'); updateLaunchpadVisibility(); });
+    const btnRefresh = w.el.querySelector('.win-actions .win-refresh');
+    [btnLeft, btnRight, btnFull, btnRefresh].forEach(btn => btn && btn.addEventListener('mousedown', (e)=>{ e.stopPropagation(); }));
+    if (btnLeft) btnLeft.addEventListener('click', (e) => { e.stopPropagation(); tileWindow(w, 'left'); updateLaunchpadVisibility(); });
+    if (btnRight) btnRight.addEventListener('click', (e) => { e.stopPropagation(); tileWindow(w, 'right'); updateLaunchpadVisibility(); });
+    if (btnFull) btnFull.addEventListener('click', (e) => { e.stopPropagation(); tileWindow(w, 'full'); updateLaunchpadVisibility(); });
+    if (btnRefresh) btnRefresh.addEventListener('click', (e) => { e.stopPropagation(); const iframe = w.el.querySelector('iframe'); if (iframe) { try { const src = iframe.getAttribute('src') || ''; const url = new URL(src, window.location.origin); url.searchParams.set('_ts', Date.now()); iframe.setAttribute('src', url.toString()); } catch { iframe.src = iframe.src; } } });
 
     rHandle.addEventListener('mousedown', startResize.bind(null, w));
   }
