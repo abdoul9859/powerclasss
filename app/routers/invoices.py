@@ -977,6 +977,19 @@ async def delete_invoice(
             # ne pas bloquer la suppression de la facture si parsing échoue
             pass
         
+        # Supprimer également tous les bons de livraison associés à cette facture
+        try:
+            related_dns = db.query(DeliveryNote).filter(DeliveryNote.invoice_id == invoice_id).all()
+            for dn in (related_dns or []):
+                try:
+                    # Les items seront supprimés grâce au cascade="all, delete-orphan"
+                    db.delete(dn)
+                except Exception:
+                    pass
+        except Exception:
+            # Ne pas bloquer la suppression de la facture si la recherche/itération échoue
+            pass
+
         db.delete(invoice)
         db.commit()
         
@@ -987,7 +1000,7 @@ async def delete_invoice(
             recompute_invoices_stats(db)
         except Exception:
             pass
-
+        
         return {"message": "Facture supprimée avec succès"}
         
     except HTTPException:
