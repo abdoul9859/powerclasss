@@ -726,7 +726,7 @@ async function loadCategories() {
         
         // Appel API via utilitaire avec timeout pour éviter les chargements infinis
         const response = await safeLoadData(
-            () => axios.get('/api/products/categories/'),
+            () => axios.get('/api/products/categories'),
             {
                 timeout: 8000,
                 fallbackData: [],

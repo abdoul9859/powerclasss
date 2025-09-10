@@ -51,11 +51,14 @@ async def cache_headers_middleware(request, call_next):
     response = await call_next(request)
     try:
         path = request.url.path or ""
-        content_type = response.headers.get("content-type", "").lower()
+        content_type = (response.headers.get("content-type", "") or "").lower()
         if path.startswith("/static/") or path == "/favicon.ico":
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         elif content_type.startswith("text/html"):
             response.headers["Cache-Control"] = "no-store"
+        # Help browsers auto-upgrade any stray http resources to https and enable HSTS
+        response.headers.setdefault("Content-Security-Policy", "upgrade-insecure-requests")
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
     except Exception:
         # En cas de souci, on n'empêche pas la réponse de sortir
         pass
