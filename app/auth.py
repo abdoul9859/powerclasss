@@ -120,3 +120,17 @@ def get_current_active_user(current_user: User = Depends(get_current_user)):
     if not getattr(current_user, "is_active", True):
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
+
+def require_any_role(roles: list[str]):
+    """Authorize if user's role is in roles OR user is admin."""
+    def checker(current_user: User = Depends(get_current_user)):
+        r = getattr(current_user, "role", "user")
+        if r == "admin":
+            return current_user
+        if r not in set(roles or []):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions"
+            )
+        return current_user
+    return checker

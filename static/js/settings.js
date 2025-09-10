@@ -154,6 +154,21 @@ async function loadSettings() {
             // silencieux
         }
         
+        // Desktop background preview from settings
+        try {
+            const bgUrl = (settings?.theme?.desktopBackground) || (settings?.desktop_bg) || null;
+            const urlInput = document.getElementById('desktopBgUrl');
+            const preview = document.getElementById('desktopBgPreview');
+            if (urlInput) urlInput.value = bgUrl || '';
+            if (preview) {
+                if (bgUrl) {
+                    preview.src = bgUrl; preview.style.display = '';
+                } else {
+                    preview.removeAttribute('src'); preview.style.display = 'none';
+                }
+            }
+        } catch(e) { /* ignore */ }
+
         if (settings.stock) {
             Object.keys(settings.stock).forEach(key => {
                 const element = document.getElementById(key);
@@ -1185,6 +1200,72 @@ async function deleteAttributeValue(attributeId, valueId) {
     }
 }
 
+// ===== Fond d'écran (upload / reset) =====
+async function uploadDesktopBackground() {
+    const fileInput = document.getElementById('desktopBgFile');
+    if (!fileInput || !fileInput.files || !fileInput.files.length) {
+        showError("Veuillez sélectionner une image à uploader");
+        return;
+    }
+    const file = fileInput.files[0];
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const resp = await fetch('/api/user-settings/upload/wallpaper', {
+            method: 'POST',
+            body: fd,
+            credentials: 'include'
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(()=>({detail:'Erreur upload'}));
+            throw new Error(err.detail || 'Erreur upload');
+        }
+        const data = await resp.json();
+        const url = data.url;
+        const urlInput = document.getElementById('desktopBgUrl');
+        const preview = document.getElementById('desktopBgPreview');
+        if (urlInput) urlInput.value = url || '';
+        if (preview && url) { preview.src = url; preview.style.display = ''; }
+        showSuccess("Fond d'écran mis à jour");
+    } catch (e) {
+        console.error(e);
+        showError(e.message || "Erreur lors de l'upload du fond d'écran");
+    }
+}
+
+async function resetDesktopBackground() {
+    try {
+        const resp = await fetch('/api/user-settings/wallpaper/reset', { method: 'POST', credentials: 'include' });
+        if (!resp.ok) {
+            const err = await resp.json().catch(()=>({detail:'Erreur reset'}));
+            throw new Error(err.detail || 'Erreur reset');
+        }
+        const urlInput = document.getElementById('desktopBgUrl');
+        const preview = document.getElementById('desktopBgPreview');
+        if (urlInput) urlInput.value = '';
+        if (preview) { preview.removeAttribute('src'); preview.style.display = 'none'; }
+        const fileInput = document.getElementById('desktopBgFile');
+        if (fileInput) fileInput.value = '';
+        showSuccess("Fond d'écran réinitialisé");
+    } catch (e) {
+        console.error(e);
+        showError(e.message || 'Erreur lors de la réinitialisation');
+    }
+}
+
+// Live preview
+document.addEventListener('change', function(e){
+    const t = e.target;
+    if (t && t.id === 'desktopBgFile' && t.files && t.files[0]) {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const preview = document.getElementById('desktopBgPreview');
+            if (preview) { preview.src = String(reader.result || ''); preview.style.display = ''; }
+        };
+        reader.readAsDataURL(t.files[0]);
+    }
+});
+
 // Rendre accessibles pour les gestionnaires inline dans le HTML
 // (assure la compatibilité même si le script est chargé en mode différé)
 window.saveCategoryAttribute = saveCategoryAttribute;
@@ -1198,3 +1279,5 @@ window.editCategory = editCategory;
 window.deleteCategory = deleteCategory;
 window.confirmDeleteCategory = confirmDeleteCategory;
 window.startCreateCategoryFromName = startCreateCategoryFromName;
+window.uploadDesktopBackground = uploadDesktopBackground;
+window.resetDesktopBackground = resetDesktopBackground;

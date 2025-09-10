@@ -56,6 +56,13 @@
                 padding-top: 66px;
             }
         }
+        /* Mode embarqué (iframe) : pas de navbar, pas de padding top */
+        body#app-body.embedded {
+            padding-top: 0 !important;
+        }
+        body#app-body.embedded > nav.navbar {
+            display: none !important;
+        }
     </style>
     
     {% block extra_head %}{% endblock %}
@@ -254,6 +261,15 @@
     <script>
       // Wire navbar searches to pages with query param ?q=
       document.addEventListener('DOMContentLoaded', function() {
+        // Détecter le mode embarqué pour cacher la navbar et le padding
+        try {
+          const qp = new URLSearchParams(window.location.search);
+          const isEmbed = qp.get('embed') === '1' || (window.top !== window.self);
+          if (isEmbed) {
+            document.body.classList.add('embedded');
+          }
+        } catch(e) {}
+
         const clientInput = document.getElementById('navClientSearch');
         const clientBtn = document.getElementById('navClientSearchBtn');
         const productInput = document.getElementById('navProductSearch');

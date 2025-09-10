@@ -14,7 +14,7 @@ from ..schemas import (
     CategoryAttributeValueCreate, CategoryAttributeValueUpdate, CategoryAttributeValueResponse,
     ProductListItem, ProductVariantListItem
 )
-from ..auth import get_current_user, require_role
+from ..auth import get_current_user, require_role, require_any_role
 from decimal import Decimal
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
@@ -259,6 +259,17 @@ async def list_products(
         query = query.filter(~pv_exists_any)
     
     products = query.offset(skip).limit(limit).all()
+    # Mask purchase_price for non-manager/admin
+    try:
+        role = getattr(current_user, "role", "user")
+        if role not in ("admin", "manager"):
+            for p in (products or []):
+                try:
+                    p.purchase_price = Decimal(0)
+                except Exception:
+                    pass
+    except Exception:
+        pass
     # Si un filtre de condition est actif, ne retourner que les variantes correspondant à cette condition
     if condition:
         cond_lower = (condition or "").strip().lower()
@@ -422,6 +433,17 @@ async def list_products_paginated(
 
     skip = (page - 1) * page_size
     items = base_query.offset(skip).limit(page_size).all()
+    # Mask purchase_price for non-manager/admin
+    try:
+        role = getattr(current_user, "role", "user")
+        if role not in ("admin", "manager"):
+            for p in (items or []):
+                try:
+                    p.purchase_price = Decimal(0)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     # Calcul d'un résumé variantes pour les produits affichés (un seul aller-retour DB)
     product_ids = [p.product_id for p in items]
@@ -500,13 +522,20 @@ async def get_product(
     product = db.query(Product).filter(Product.product_id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Produit non trouvé")
+    # Mask purchase_price for non-manager/admin
+    try:
+        role = getattr(current_user, "role", "user")
+        if role not in ("admin", "manager") and product is not None:
+            product.purchase_price = Decimal(0)
+    except Exception:
+        pass
     return product
 
 @router.post("/", response_model=ProductResponse)
 async def create_product(
     product_data: ProductCreate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(require_any_role(["manager"]))
 ):
     """Créer un nouveau produit avec variantes selon la règle métier"""
     try:
@@ -654,7 +683,7 @@ async def update_product(
     product_id: int,
     product_data: ProductUpdate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(require_any_role(["manager"]))
 ):
     """Mettre à jour un produit"""
     try:
@@ -826,7 +855,7 @@ async def update_product(
 async def delete_product(
     product_id: int,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role("admin"))
+    current_user = Depends(require_any_role(["manager"]))
 ):
     """Supprimer un produit"""
     try:
