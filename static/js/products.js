@@ -468,6 +468,29 @@ async function loadProducts() {
     }
 }
 
+// Cache pour les vérifications de modification des produits
+const productModificationCache = new Map();
+
+async function canModifyProduct(productId) {
+    // Vérifier le cache d'abord
+    if (productModificationCache.has(productId)) {
+        return productModificationCache.get(productId);
+    }
+    
+    try {
+        const response = await apiRequest(`/api/products/id/${productId}/can-modify`);
+        const canModify = response.data?.can_modify || false;
+        // Mettre en cache pour 5 minutes
+        productModificationCache.set(productId, canModify);
+        setTimeout(() => productModificationCache.delete(productId), 5 * 60 * 1000);
+        return canModify;
+    } catch (error) {
+        console.error('Erreur lors de la vérification de modification:', error);
+        // En cas d'erreur, permettre la modification par défaut
+        return true;
+    }
+}
+
 function displayProducts(products) {
     const tbody = document.getElementById('productsTableBody');
     
@@ -537,11 +560,13 @@ function displayProducts(products) {
                         <button class="btn btn-outline-info" onclick="viewProduct(${product.product_id})" title="Voir détails">
                             <i class="bi bi-eye"></i>
                         </button>
-                        <button class="btn btn-outline-primary" onclick="editProduct(${product.product_id})" title="Modifier">
+                        <button class="btn btn-outline-primary" onclick="editProduct(${product.product_id})" 
+                                id="edit-btn-${product.product_id}" title="Modifier">
                             <i class="bi bi-pencil"></i>
                         </button>
                         ${authManager.isAdmin() ? `
-                            <button class="btn btn-outline-danger" onclick="deleteProduct(${product.product_id})" title="Supprimer">
+                            <button class="btn btn-outline-danger" onclick="deleteProduct(${product.product_id})" 
+                                    id="delete-btn-${product.product_id}" title="Supprimer">
                                 <i class="bi bi-trash"></i>
                             </button>
                         ` : ''}
@@ -552,6 +577,37 @@ function displayProducts(products) {
     });
     
     tbody.innerHTML = html;
+    
+    // Vérifier et désactiver les boutons pour les produits utilisés
+    checkAndDisableProductButtons(products);
+}
+
+async function checkAndDisableProductButtons(products) {
+    for (const product of products) {
+        try {
+            const canModify = await canModifyProduct(product.product_id);
+            if (!canModify) {
+                const editBtn = document.getElementById(`edit-btn-${product.product_id}`);
+                const deleteBtn = document.getElementById(`delete-btn-${product.product_id}`);
+                
+                if (editBtn) {
+                    editBtn.disabled = true;
+                    editBtn.classList.remove('btn-outline-primary');
+                    editBtn.classList.add('btn-outline-secondary');
+                    editBtn.title = 'Ce produit ne peut pas être modifié car il est utilisé dans des factures, devis ou bons de livraison';
+                }
+                
+                if (deleteBtn) {
+                    deleteBtn.disabled = true;
+                    deleteBtn.classList.remove('btn-outline-danger');
+                    deleteBtn.classList.add('btn-outline-secondary');
+                    deleteBtn.title = 'Ce produit ne peut pas être supprimé car il est utilisé dans des factures, devis ou bons de livraison';
+                }
+            }
+        } catch (error) {
+            console.error(`Erreur lors de la vérification du produit ${product.product_id}:`, error);
+        }
+    }
 }
 
 // Injecte les boutons de tri dans l'en-tête du tableau si présent
@@ -1458,8 +1514,19 @@ async function viewProduct(productId) {
     }
 }
 
-function editProduct(productId) {
-    openProductModal(productId);
+async function editProduct(productId) {
+    try {
+        const canModify = await canModifyProduct(productId);
+        if (!canModify) {
+            showAlert('Ce produit ne peut pas être modifié car il est déjà utilisé dans des factures, devis ou bons de livraison', 'warning');
+            return;
+        }
+        openProductModal(productId);
+    } catch (error) {
+        console.error('Erreur lors de la vérification de modification:', error);
+        // En cas d'erreur, permettre la modification par défaut
+        openProductModal(productId);
+    }
 }
 
 // Impression individuelle d'un code-barres de variante
@@ -1488,11 +1555,17 @@ function printVariantBarcode(barcodeValue, productName) {
 }
 
 async function deleteProduct(productId) {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer ce produit ? Cette action est irréversible.')) {
-        return;
-    }
-    
     try {
+        const canModify = await canModifyProduct(productId);
+        if (!canModify) {
+            showAlert('Ce produit ne peut pas être supprimé car il est déjà utilisé dans des factures, devis ou bons de livraison', 'warning');
+            return;
+        }
+        
+        if (!confirm('Êtes-vous sûr de vouloir supprimer ce produit ? Cette action est irréversible.')) {
+            return;
+        }
+        
         await apiRequest(`/api/products/id/${productId}`, { method: 'DELETE' });
         showAlert('Produit supprimé avec succès', 'success');
         loadProducts();
