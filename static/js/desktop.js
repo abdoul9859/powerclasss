@@ -26,7 +26,11 @@
   function allowedAppIdsFor(role){
     // Basic roles (cashier and user): strictly limited set
     if (role === 'cashier' || role === 'user') {
-      return new Set(['invoices','quotations','products']);
+      return new Set([
+        'invoices','quotations','products',
+        'dashboard','clients','debts','suppliers',
+        'scan','barcode','daily_purchases','migration'
+      ]);
     }
     // Manager: curated set of business apps (no cache/migration by default; keep settings if desired)
     if (role === 'manager') {
