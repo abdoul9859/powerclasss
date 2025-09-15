@@ -17,11 +17,55 @@ from ..schemas import (
 from ..auth import get_current_user, require_role, require_any_role
 from decimal import Decimal
 from pydantic import BaseModel
+from ..database import InvoiceItem, QuotationItem, DeliveryNoteItem
 from sqlalchemy.exc import IntegrityError
 import logging
 import time
 
 router = APIRouter(prefix="/api/products", tags=["products"])
+
+def is_product_used_in_transactions(db: Session, product_id: int) -> bool:
+    """Vérifie si un produit est utilisé dans des factures, devis ou bons de livraison"""
+    # Vérifier dans les factures
+    invoice_usage = db.query(InvoiceItem).filter(InvoiceItem.product_id == product_id).first()
+    if invoice_usage:
+        return True
+    
+    # Vérifier dans les devis
+    quotation_usage = db.query(QuotationItem).filter(QuotationItem.product_id == product_id).first()
+    if quotation_usage:
+        return True
+    
+    # Vérifier dans les bons de livraison
+    delivery_usage = db.query(DeliveryNoteItem).filter(DeliveryNoteItem.product_id == product_id).first()
+    if delivery_usage:
+        return True
+    
+    return False
+
+@router.get("/id/{product_id}/can-modify")
+async def can_modify_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Vérifier si un produit peut être modifié"""
+    try:
+        product = db.query(Product).filter(Product.product_id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Produit non trouvé")
+        
+        is_used = is_product_used_in_transactions(db, product_id)
+        return {
+            "product_id": product_id,
+            "can_modify": not is_used,
+            "is_used_in_transactions": is_used
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erreur lors de la vérification de modification du produit: {e}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
 
 # Cache simple pour accélérer les endpoints produits (similaire au dashboard)
 _cache = {}
@@ -695,6 +739,13 @@ async def update_product(
         if not product:
             raise HTTPException(status_code=404, detail="Produit non trouvé")
         
+        # Vérifier si le produit est utilisé dans des transactions
+        if is_product_used_in_transactions(db, product_id):
+            raise HTTPException(
+                status_code=400, 
+                detail="Ce produit ne peut pas être modifié car il est déjà utilisé dans des factures, devis ou bons de livraison"
+            )
+        
         # Validation selon la règle métier
         has_variants = len(product.variants) > 0
         new_variants = product_data.variants if product_data.variants is not None else []
@@ -862,6 +913,13 @@ async def delete_product(
         product = db.query(Product).filter(Product.product_id == product_id).first()
         if not product:
             raise HTTPException(status_code=404, detail="Produit non trouvé")
+        
+        # Vérifier si le produit est utilisé dans des transactions
+        if is_product_used_in_transactions(db, product_id):
+            raise HTTPException(
+                status_code=400, 
+                detail="Ce produit ne peut pas être supprimé car il est déjà utilisé dans des factures, devis ou bons de livraison"
+            )
         
         # Créer un mouvement de stock de sortie pour traçabilité
         if product.quantity > 0:
