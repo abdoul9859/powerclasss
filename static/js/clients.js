@@ -328,7 +328,7 @@ async function saveClient() {
         const clientId = document.getElementById('clientId').value;
         const clientData = {
             name: document.getElementById('clientName').value.trim(),
-            contact_person: document.getElementById('clientContact').value.trim() || null,
+            contact: document.getElementById('clientContact').value.trim() || null,
             email: document.getElementById('clientEmail').value.trim() || null,
             phone: document.getElementById('clientPhone').value.trim() || null,
             address: document.getElementById('clientAddress').value.trim() || null,

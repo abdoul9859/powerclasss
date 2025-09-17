@@ -25,22 +25,9 @@ import time
 router = APIRouter(prefix="/api/products", tags=["products"])
 
 def is_product_used_in_transactions(db: Session, product_id: int) -> bool:
-    """Vérifie si un produit est utilisé dans des factures, devis ou bons de livraison"""
-    # Vérifier dans les factures
-    invoice_usage = db.query(InvoiceItem).filter(InvoiceItem.product_id == product_id).first()
-    if invoice_usage:
-        return True
-    
-    # Vérifier dans les devis
-    quotation_usage = db.query(QuotationItem).filter(QuotationItem.product_id == product_id).first()
-    if quotation_usage:
-        return True
-    
-    # Vérifier dans les bons de livraison
-    delivery_usage = db.query(DeliveryNoteItem).filter(DeliveryNoteItem.product_id == product_id).first()
-    if delivery_usage:
-        return True
-    
+    """Vérifie si un produit est utilisé dans des factures, devis ou bons de livraison
+    NOTE: Cette fonction retourne toujours False maintenant car on permet la modification des produits.
+    La protection se fait au niveau des variantes individuelles."""
     return False
 
 @router.get("/id/{product_id}/can-modify")
@@ -49,22 +36,58 @@ async def can_modify_product(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Vérifier si un produit peut être modifié"""
+    """Vérifier si un produit peut être modifié (toujours True maintenant)"""
     try:
         product = db.query(Product).filter(Product.product_id == product_id).first()
         if not product:
             raise HTTPException(status_code=404, detail="Produit non trouvé")
         
-        is_used = is_product_used_in_transactions(db, product_id)
+        # Les produits peuvent toujours être modifiés maintenant
         return {
             "product_id": product_id,
-            "can_modify": not is_used,
-            "is_used_in_transactions": is_used
+            "can_modify": True,
+            "is_used_in_transactions": False
         }
     except HTTPException:
         raise
     except Exception as e:
         logging.error(f"Erreur lors de la vérification de modification du produit: {e}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
+
+@router.get("/id/{product_id}/variants/sold")
+async def get_sold_variants(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Récupérer les variantes vendues d'un produit"""
+    try:
+        product = db.query(Product).filter(Product.product_id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Produit non trouvé")
+        
+        sold_variants = db.query(ProductVariant).filter(
+            ProductVariant.product_id == product_id,
+            ProductVariant.is_sold == True
+        ).all()
+        
+        return {
+            "product_id": product_id,
+            "sold_variants": [
+                {
+                    "variant_id": v.variant_id,
+                    "imei_serial": v.imei_serial,
+                    "barcode": v.barcode,
+                    "condition": v.condition,
+                    "is_sold": v.is_sold
+                }
+                for v in sold_variants
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erreur lors de la récupération des variantes vendues: {e}")
         raise HTTPException(status_code=500, detail="Erreur serveur")
 
 # Cache simple pour accélérer les endpoints produits (similaire au dashboard)
@@ -302,6 +325,9 @@ async def list_products(
     elif has_variants is False:
         query = query.filter(~pv_exists_any)
     
+    # Tri par défaut: dernier produit ajouté en haut
+    query = query.order_by(Product.created_at.desc())
+    
     products = query.offset(skip).limit(limit).all()
     # Mask purchase_price for non-manager/admin
     try:
@@ -343,8 +369,8 @@ async def list_products_paginated(
     brand: Optional[str] = None,
     model: Optional[str] = None,
     has_barcode: Optional[bool] = None,
-    sort_by: Optional[str] = Query("name"),  # name | category | price | stock | barcode
-    sort_dir: Optional[str] = Query("asc"),  # asc | desc
+    sort_by: Optional[str] = Query("created_at"),  # name | category | price | stock | barcode | created_at
+    sort_dir: Optional[str] = Query("desc"),  # asc | desc
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -463,6 +489,8 @@ async def list_products_paginated(
         order_expr = Product.barcode.desc() if dir_desc else Product.barcode.asc()
     elif sort_key == 'stock':
         order_expr = stock_expr.desc() if dir_desc else stock_expr.asc()
+    elif sort_key == 'created_at':
+        order_expr = Product.created_at.desc() if dir_desc else Product.created_at.asc()
     else:  # name (default)
         order_expr = Product.name.desc() if dir_desc else Product.name.asc()
 
@@ -583,6 +611,9 @@ async def create_product(
 ):
     """Créer un nouveau produit avec variantes selon la règle métier"""
     try:
+        print(f"🔍 Received product data: {product_data}")
+        print(f"🔍 Product data dict: {product_data.dict()}")
+        print(f"🔍 Variants: {product_data.variants}")
         _ensure_condition_columns(db)
         cond_cfg = _get_allowed_conditions(db)
         allowed = set([c.lower() for c in cond_cfg["options"]])
@@ -837,28 +868,59 @@ async def update_product(
             if existing_serials:
                 raise HTTPException(status_code=400, detail="Un ou plusieurs IMEI/numéros de série existent déjà")
             
-            # Supprimer les anciennes variantes via ORM pour garder la session en phase
-            for old in list(product.variants or []):
+            # Récupérer les variantes existantes avec leur statut de vente
+            existing_variants = {v.imei_serial: v for v in product.variants}
+            
+            # Identifier les variantes à supprimer (celles qui ne sont plus dans la nouvelle liste ET non vendues)
+            new_imeis = {nv['imei_serial'] for nv in norm_variants}
+            variants_to_delete = []
+            for imei, variant in existing_variants.items():
+                if imei not in new_imeis and not variant.is_sold:
+                    # Seulement supprimer les variantes non vendues
+                    variants_to_delete.append(variant)
+                elif imei not in new_imeis and variant.is_sold:
+                    # Les variantes vendues sont préservées même si elles ne sont pas dans la nouvelle liste
+                    pass
+            
+            # Supprimer uniquement les variantes non vendues
+            for variant in variants_to_delete:
                 try:
-                    db.delete(old)
+                    db.delete(variant)
                 except Exception:
                     pass
             db.flush()
 
-            # Créer les nouvelles variantes et construire une table de correspondance par IMEI
+            # Créer ou mettre à jour les variantes
             imei_to_db_variant = {}
             for nv in norm_variants:
-                db_variant = ProductVariant(
-                    product_id=product_id,
-                    imei_serial=nv['imei_serial'],
-                    barcode=nv['barcode'],
-                    condition=nv['condition']
-                )
-                db.add(db_variant)
-                db.flush()  # pour obtenir variant_id immédiatement
+                imei = nv['imei_serial']
+                if imei in existing_variants:
+                    # Mettre à jour la variante existante (préserver is_sold)
+                    db_variant = existing_variants[imei]
+                    db_variant.barcode = nv['barcode']
+                    db_variant.condition = nv['condition']
+                    # Ne pas modifier is_sold - il est préservé
+                else:
+                    # Créer une nouvelle variante
+                    db_variant = ProductVariant(
+                        product_id=product_id,
+                        imei_serial=nv['imei_serial'],
+                        barcode=nv['barcode'],
+                        condition=nv['condition'],
+                        is_sold=False  # Nouvelle variante = non vendue
+                    )
+                    db.add(db_variant)
+                    db.flush()  # pour obtenir variant_id immédiatement
+                
                 imei_to_db_variant[str(nv['imei_serial']).strip()] = db_variant
 
-            # Attacher les attributs aux bonnes variantes en se basant sur l'IMEI
+            # Supprimer tous les anciens attributs des variantes existantes
+            for db_variant in imei_to_db_variant.values():
+                db.query(ProductVariantAttribute).filter(
+                    ProductVariantAttribute.variant_id == db_variant.variant_id
+                ).delete()
+            
+            # Attacher les nouveaux attributs aux bonnes variantes en se basant sur l'IMEI
             for orig_v in (product_data.variants or []):
                 try:
                     orig_imei = str(getattr(orig_v, 'imei_serial', '')).strip()
@@ -878,8 +940,12 @@ async def update_product(
                     # Ne pas bloquer la mise à jour si un attribut est mal formé
                     pass
             
-            # Mettre à jour la quantité basée sur les variantes
-            product.quantity = len(norm_variants)
+            # Mettre à jour la quantité basée sur les variantes non vendues uniquement
+            available_variants = db.query(ProductVariant).filter(
+                ProductVariant.product_id == product_id,
+                ProductVariant.is_sold == False
+            ).count()
+            product.quantity = available_variants
             # S'assurer que le code-barres produit est None si variantes
             product.barcode = None
         

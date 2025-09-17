@@ -1007,7 +1007,8 @@ function openInvoiceModal() {
                         numberEl.value = '';
                         numberEl.placeholder = 'Sera généré automatiquement';
                     }
-                }).catch(() => {
+                }).catch((error) => {
+                    console.error('Erreur lors du chargement du numéro de facture:', error);
                     // En cas d'erreur API, laisser vide pour laisser le backend générer
                     numberEl.value = '';
                     numberEl.placeholder = 'Sera généré automatiquement';
@@ -1712,8 +1713,14 @@ await axios.post(`/api/invoices/${invId || ''}/payments`, {
 async function saveQuickClient() {
     const name = (document.getElementById('qcName')?.value || '').trim();
     if (!name) { showWarning('Le nom du client est obligatoire'); return; }
+    
+    const payload = { 
+        name, 
+        phone: (document.getElementById('qcPhone')?.value || '').trim(), 
+        email: (document.getElementById('qcEmail')?.value || '').trim() 
+    };
+    
     try {
-        const payload = { name, phone: (document.getElementById('qcPhone')?.value || '').trim(), email: (document.getElementById('qcEmail')?.value || '').trim() };
         const { data: client } = await axios.post('/api/clients/', payload);
         // Rafraîchir via recherche serveur pour s'assurer de l'affichage immédiat
         try {
@@ -1733,7 +1740,18 @@ async function saveQuickClient() {
         if (qm) qm.hide();
         showSuccess('Client ajouté');
     } catch (e) {
-        showError('Erreur lors de la création du client');
+        console.error('Erreur lors de la création du client:', e);
+        console.error('Payload envoyé:', payload);
+        console.error('Response:', e.response);
+        
+        let errorMessage = 'Erreur lors de la création du client';
+        if (e.response?.data?.detail) {
+            errorMessage = e.response.data.detail;
+        } else if (e.message) {
+            errorMessage = e.message;
+        }
+        
+        showError(errorMessage);
     }
 }
 
