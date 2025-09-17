@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional, List
 from datetime import datetime, date
 from decimal import Decimal
+import os
+import uuid
+from pathlib import Path
 
 from ..database import (
     get_db, User, Supplier, 
@@ -27,6 +31,27 @@ def _invalidate_dashboard_cache():
     except Exception:
         # Non-blocking; dashboard will eventually refresh by TTL
         pass
+
+# Helper: save uploaded PDF file
+def _save_pdf_file(file: UploadFile) -> tuple[str, str]:
+    """Sauvegarder un fichier PDF uploadé et retourner le chemin et le nom de fichier"""
+    # Créer le dossier de destination s'il n'existe pas
+    upload_dir = Path("static/uploads/supplier_invoices")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Générer un nom de fichier unique
+    file_extension = Path(file.filename).suffix if file.filename else ".pdf"
+    unique_filename = f"{uuid.uuid4()}{file_extension}"
+    file_path = upload_dir / unique_filename
+    
+    # Sauvegarder le fichier
+    with open(file_path, "wb") as buffer:
+        content = file.file.read()
+        buffer.write(content)
+    
+    # Retourner le chemin relatif et le nom original
+    relative_path = f"/static/uploads/supplier_invoices/{unique_filename}"
+    return str(relative_path), file.filename or unique_filename
 
 @router.get("/", response_model=dict)
 async def get_supplier_invoices(
@@ -89,6 +114,8 @@ async def get_supplier_invoices(
                 "status": invoice.status,
                 "payment_method": invoice.payment_method,
                 "notes": invoice.notes,
+                "pdf_path": invoice.pdf_path,
+                "pdf_filename": invoice.pdf_filename,
                 "created_at": invoice.created_at
             }
             result_invoices.append(invoice_dict)
@@ -130,52 +157,53 @@ async def get_supplier_invoice(
         status=invoice.status,
         payment_method=invoice.payment_method,
         notes=invoice.notes,
+        pdf_path=invoice.pdf_path,
+        pdf_filename=invoice.pdf_filename,
         created_at=invoice.created_at
     )
 
 @router.post("/", response_model=SupplierInvoiceResponse)
 async def create_supplier_invoice(
-    invoice_data: SupplierInvoiceCreate,
+    supplier_id: int = Form(...),
+    pdf_file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Créer une nouvelle facture fournisseur"""
+    """Créer une nouvelle facture fournisseur - Version simplifiée avec seulement PDF + fournisseur"""
     try:
         # Vérifier que le fournisseur existe
-        supplier = db.query(Supplier).filter(Supplier.supplier_id == invoice_data.supplier_id).first()
+        supplier = db.query(Supplier).filter(Supplier.supplier_id == supplier_id).first()
         if not supplier:
             raise HTTPException(status_code=404, detail="Fournisseur non trouvé")
         
-        # Vérifier l'unicité du numéro de facture
-        existing = db.query(SupplierInvoice).filter(SupplierInvoice.invoice_number == invoice_data.invoice_number).first()
-        if existing:
-            raise HTTPException(status_code=400, detail="Ce numéro de facture existe déjà")
+        # Vérifier le type de fichier PDF
+        if pdf_file.content_type != "application/pdf":
+            raise HTTPException(status_code=400, detail="Seuls les fichiers PDF sont acceptés")
         
-        # Calculer le remaining_amount
-        paid_amount = invoice_data.paid_amount if invoice_data.paid_amount else 0
-        remaining_amount = invoice_data.amount - paid_amount
+        # Sauvegarder le fichier PDF
+        pdf_path, pdf_filename = _save_pdf_file(pdf_file)
         
-        # Déterminer le statut initial
-        if remaining_amount <= 0:
-            status = "paid"
-        elif paid_amount > 0:
-            status = "partial"
-        else:
-            status = "pending"
+        # Générer un numéro de facture automatique basé sur le timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        auto_invoice_number = f"FAC-{timestamp}"
         
-        # Créer la facture (nouvelle structure simplifiée)
+        # Créer la facture avec des valeurs par défaut pour les champs obligatoires
+        current_time = datetime.now()
         invoice = SupplierInvoice(
-            supplier_id=invoice_data.supplier_id,
-            invoice_number=invoice_data.invoice_number,
-            invoice_date=invoice_data.invoice_date,
-            due_date=invoice_data.due_date,
-            description=invoice_data.description or "Facture fournisseur",
-            amount=invoice_data.amount,
-            paid_amount=paid_amount,
-            remaining_amount=remaining_amount,
-            status=status,
-            payment_method=invoice_data.payment_method,
-            notes=invoice_data.notes
+            supplier_id=supplier_id,
+            invoice_number=auto_invoice_number,
+            invoice_date=current_time,  # Date actuelle par défaut
+            due_date=None,
+            description="Facture PDF - Détails à compléter",  # Description par défaut
+            amount=0.0,  # Montant par défaut à 0
+            paid_amount=0.0,
+            remaining_amount=0.0,
+            status="pending",
+            payment_method=None,
+            notes=None,
+            pdf_path=pdf_path,
+            pdf_filename=pdf_filename
         )
         
         db.add(invoice)
@@ -410,3 +438,28 @@ async def get_summary_stats(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/pdf/{invoice_id}")
+async def get_invoice_pdf(
+    invoice_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Récupérer le PDF d'une facture fournisseur"""
+    invoice = db.query(SupplierInvoice).filter(SupplierInvoice.invoice_id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Facture non trouvée")
+    
+    if not invoice.pdf_path:
+        raise HTTPException(status_code=404, detail="Aucun PDF associé à cette facture")
+    
+    # Convertir le chemin relatif en chemin absolu
+    pdf_path = invoice.pdf_path.lstrip("/")
+    if not os.path.exists(pdf_path):
+        raise HTTPException(status_code=404, detail="Fichier PDF introuvable")
+    
+    return FileResponse(
+        path=pdf_path,
+        filename=invoice.pdf_filename or f"facture_{invoice.invoice_number}.pdf",
+        media_type="application/pdf"
+    )

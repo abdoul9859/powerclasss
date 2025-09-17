@@ -15,6 +15,7 @@ from ..database import (
     DeliveryNoteItem,
     SupplierInvoice,
     SupplierInvoicePayment,
+    DailySale,
 )
 from ..database import DailyPurchase
 from ..schemas import InvoiceCreate, InvoiceResponse, InvoiceItemResponse
@@ -428,6 +429,34 @@ async def create_invoice(
         
         db.commit()
         db.refresh(db_invoice)
+        
+        # Créer automatiquement les ventes quotidiennes pour chaque produit de la facture
+        try:
+            for item_data in invoice_data.items:
+                if getattr(item_data, 'product_id', None):  # Seulement pour les produits réels
+                    # Récupérer le nom du produit
+                    product = db.query(Product).filter(Product.product_id == item_data.product_id).first()
+                    if product:
+                        daily_sale = DailySale(
+                            client_id=invoice_data.client_id,
+                            client_name=client.name,
+                            product_id=item_data.product_id,
+                            product_name=item_data.product_name or product.name,
+                            quantity=item_data.quantity,
+                            unit_price=item_data.price,
+                            total_amount=item_data.total,
+                            sale_date=invoice_data.date.date(),
+                            payment_method=invoice_data.payment_method or "espece",
+                            invoice_id=db_invoice.invoice_id,
+                            notes=f"Vente automatique depuis facture {final_number}"
+                        )
+                        db.add(daily_sale)
+            
+            db.commit()
+        except Exception as e:
+            # Ne pas bloquer la création de facture si l'enregistrement des ventes quotidiennes échoue
+            logging.warning(f"Erreur lors de la création des ventes quotidiennes: {e}")
+            pass
         
         # Clear invoices cache after creation to ensure fresh data on next load
         _invoices_cache.clear()

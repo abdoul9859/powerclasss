@@ -20,11 +20,8 @@ function initializeSupplierInvoices() {
     setupEventListeners();
     setupFormValidation();
     
-    // Date par défaut à maintenant
-    const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    document.getElementById('invoiceDate').value = now.toISOString().slice(0, 16);
-    document.getElementById('paymentDate').value = now.toISOString().slice(0, 16);
+    // Le formulaire simplifié n'a plus de champs de date
+    // Les dates seront gérées automatiquement par le serveur
 }
 
 // Configuration des écouteurs d'événements
@@ -328,7 +325,7 @@ function displayInvoices() {
     if (invoices.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="9" class="text-center py-4">
+                <td colspan="10" class="text-center py-4">
                     <i class="bi bi-inbox text-muted" style="font-size: 2rem;"></i>
                     <p class="text-muted mt-2">Aucune facture trouvée</p>
                 </td>
@@ -343,15 +340,22 @@ function displayInvoices() {
                 <strong>${escapeHtml(invoice.invoice_number)}</strong>
             </td>
             <td>${escapeHtml(invoice.supplier_name || 'N/A')}</td>
-            <td>${formatDateTime(invoice.invoice_date)}</td>
+            <td>${invoice.invoice_date ? formatDateTime(invoice.invoice_date) : '-'}</td>
             <td>${invoice.due_date ? formatDateTime(invoice.due_date) : '-'}</td>
-            <td class="amount-display">${formatCurrency(invoice.amount || invoice.total)}</td>
-            <td class="amount-display">${formatCurrency(invoice.paid_amount)}</td>
-            <td class="amount-display">${formatCurrency(invoice.remaining_amount)}</td>
+            <td class="amount-display">${invoice.amount ? formatCurrency(invoice.amount) : '-'}</td>
+            <td class="amount-display">${formatCurrency(invoice.paid_amount || 0)}</td>
+            <td class="amount-display">${formatCurrency(invoice.remaining_amount || 0)}</td>
             <td>
                 <span class="badge ${getStatusBadgeClass(invoice.status)}">
                     ${getStatusLabel(invoice.status)}
                 </span>
+            </td>
+            <td>
+                ${invoice.pdf_path ? `
+                    <a href="/api/supplier-invoices/pdf/${invoice.invoice_id}" target="_blank" class="btn btn-sm btn-outline-primary" title="Voir PDF">
+                        <i class="bi bi-file-pdf"></i>
+                    </a>
+                ` : '<span class="text-muted">-</span>'}
             </td>
             <td>
                 <div class="btn-group btn-group-sm">
@@ -399,15 +403,20 @@ function openInvoiceModal(invoiceId = null) {
 // Réinitialiser le formulaire de facture
 function resetInvoiceForm() {
     document.getElementById('invoiceForm').reset();
-    // Mettre paidAmount à zéro
-    document.getElementById('paidAmount').value = "0";
-    const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    document.getElementById('invoiceDate').value = now.toISOString().slice(0, 16);
+    
     // Supprimer les classes de validation
     document.querySelectorAll('.form-control, .form-select').forEach(field => {
         field.classList.remove('is-valid', 'is-invalid');
     });
+    
+    // Réinitialiser les champs spécifiques du formulaire simplifié
+    const supplierSearch = document.getElementById('supplierSearch');
+    const supplierId = document.getElementById('supplierId');
+    const pdfFile = document.getElementById('pdfFile');
+    
+    if (supplierSearch) supplierSearch.value = '';
+    if (supplierId) supplierId.value = '';
+    if (pdfFile) pdfFile.value = '';
 }
 
 // Charger une facture pour édition
@@ -420,14 +429,9 @@ async function loadInvoiceForEdit(invoiceId) {
         document.getElementById('supplierId').value = invoice.supplier_id;
         document.getElementById('supplierSearch').value = invoice.supplier_name || '';
         
-        // Remplir les autres champs
-        document.getElementById('invoiceNumber').value = invoice.invoice_number;
-        document.getElementById('invoiceDate').value = invoice.invoice_date.slice(0, 16);
-        document.getElementById('dueDate').value = invoice.due_date ? invoice.due_date.slice(0, 16) : '';
-        document.getElementById('paymentMethod').value = invoice.payment_method || '';
-        document.getElementById('amount').value = invoice.amount || 0;
-        document.getElementById('paidAmount').value = invoice.paid_amount || 0;
-        document.getElementById('notes').value = invoice.notes || '';
+        // Le formulaire simplifié ne permet plus l'édition des détails
+        // Seul le fournisseur et le PDF sont modifiables
+        console.log('Mode édition non supporté avec le formulaire simplifié');
     } catch (error) {
         console.error('Erreur lors du chargement de la facture:', error);
         showError('Erreur lors du chargement de la facture');
@@ -502,10 +506,14 @@ async function handleInvoiceFormSubmit(e) {
         const formData = collectInvoiceFormData();
         
         if (currentInvoiceId) {
-            await axios.put(`/api/supplier-invoices/${currentInvoiceId}`, formData);
+            await axios.put(`/api/supplier-invoices/${currentInvoiceId}`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
             showSuccess('Facture mise à jour avec succès');
         } else {
-            await axios.post('/api/supplier-invoices', formData);
+            await axios.post('/api/supplier-invoices', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
             showSuccess('Facture créée avec succès');
         }
         
@@ -521,39 +529,54 @@ async function handleInvoiceFormSubmit(e) {
     }
 }
 
-// Valider le formulaire de facture
+// Valider le formulaire de facture (version simplifiée)
 function validateInvoiceForm() {
-    const requiredFields = [
-        'supplierId', 'invoiceNumber', 'invoiceDate', 'amount'
-    ];
-
+    const supplierId = document.getElementById('supplierId');
+    const pdfFile = document.getElementById('pdfFile');
+    
     let isValid = true;
 
-    requiredFields.forEach(fieldId => {
-        const field = document.getElementById(fieldId);
-        if (!field.value || (field.type === 'number' && parseFloat(field.value) < 0)) {
-            field.classList.add('is-invalid');
+    // Vérifier le fournisseur
+    if (!supplierId.value) {
+        supplierId.classList.add('is-invalid');
+        isValid = false;
+    } else {
+        supplierId.classList.remove('is-invalid');
+    }
+    
+    // Vérifier le fichier PDF
+    if (!pdfFile.files || pdfFile.files.length === 0) {
+        pdfFile.classList.add('is-invalid');
+        isValid = false;
+    } else {
+        pdfFile.classList.remove('is-invalid');
+        
+        // Vérifier que c'est un PDF
+        const file = pdfFile.files[0];
+        if (file && file.type !== 'application/pdf') {
+            pdfFile.classList.add('is-invalid');
+            showError('Seuls les fichiers PDF sont acceptés');
             isValid = false;
-        } else {
-            field.classList.remove('is-invalid');
         }
-    });
+    }
 
     return isValid;
 }
 
 // Collecter les données du formulaire
 function collectInvoiceFormData() {
-    return {
-        supplier_id: parseInt(document.getElementById('supplierId').value),
-        invoice_number: document.getElementById('invoiceNumber').value,
-        invoice_date: document.getElementById('invoiceDate').value,
-        due_date: document.getElementById('dueDate').value || null,
-        payment_method: document.getElementById('paymentMethod').value || null,
-        amount: parseFloat(document.getElementById('amount').value),
-        paid_amount: parseFloat(document.getElementById('paidAmount').value) || 0,
-        notes: document.getElementById('notes').value || null
-    };
+    const formData = new FormData();
+    
+    // Seulement le fournisseur et le PDF
+    formData.append('supplier_id', document.getElementById('supplierId').value);
+    
+    // Ajouter le fichier PDF (obligatoire)
+    const pdfFile = document.getElementById('pdfFile').files[0];
+    if (pdfFile) {
+        formData.append('pdf_file', pdfFile);
+    }
+    
+    return formData;
 }
 
 // Voir les détails d'une facture
@@ -569,9 +592,9 @@ async function viewInvoice(invoiceId) {
             <div class="row">
                 <div class="col-md-6">
                     <h6>Informations générales</h6>
-                    <p><strong>N° Facture :</strong> ${escapeHtml(invoice.invoice_number)}</p>
+                    <p><strong>N° Facture :</strong> ${escapeHtml(invoice.invoice_number || 'Non défini')}</p>
                     <p><strong>Fournisseur :</strong> ${escapeHtml(invoice.supplier_name)}</p>
-                    <p><strong>Date facture :</strong> ${formatDateTime(invoice.invoice_date)}</p>
+                    <p><strong>Date facture :</strong> ${invoice.invoice_date ? formatDateTime(invoice.invoice_date) : 'Non définie'}</p>
                     <p><strong>Date échéance :</strong> ${invoice.due_date ? formatDateTime(invoice.due_date) : 'Non définie'}</p>
                     <p><strong>Méthode de paiement :</strong> ${invoice.payment_method ? escapeHtml(invoice.payment_method) : 'Non spécifié'}</p>
                     <p><strong>Statut :</strong> 
@@ -582,9 +605,9 @@ async function viewInvoice(invoiceId) {
                 </div>
                 <div class="col-md-6">
                     <h6>Montants</h6>
-                    <p><strong>Montant total :</strong> ${formatCurrency(invoice.amount || invoice.total)}</p>
-                    <p><strong>Montant payé :</strong> ${formatCurrency(invoice.paid_amount)}</p>
-                    <p><strong>Montant restant :</strong> ${formatCurrency(invoice.remaining_amount)}</p>
+                    <p><strong>Montant total :</strong> ${invoice.amount ? formatCurrency(invoice.amount) : 'Non défini'}</p>
+                    <p><strong>Montant payé :</strong> ${formatCurrency(invoice.paid_amount || 0)}</p>
+                    <p><strong>Montant restant :</strong> ${formatCurrency(invoice.remaining_amount || 0)}</p>
                 </div>
             </div>
             
@@ -593,6 +616,18 @@ async function viewInvoice(invoiceId) {
                     <div class="col-12">
                         <h6>Description</h6>
                         <p>${escapeHtml(invoice.description)}</p>
+                    </div>
+                </div>
+            ` : ''}
+            
+            ${invoice.pdf_path ? `
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h6>Document PDF</h6>
+                        <a href="/api/supplier-invoices/pdf/${invoice.invoice_id}" target="_blank" class="btn btn-primary">
+                            <i class="bi bi-file-pdf me-2"></i>Voir le PDF de la facture
+                        </a>
+                        <small class="text-muted d-block mt-1">${escapeHtml(invoice.pdf_filename || 'Document PDF')}</small>
                     </div>
                 </div>
             ` : ''}

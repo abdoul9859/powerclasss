@@ -16,6 +16,8 @@
     { id:'settings', title:'Paramètres', icon:'⚙️', url:'/settings' },
     { id:'daily_recap', title:'Récap Quotidien', icon:'🗓️', url:'/daily-recap' },
     { id:'daily_purchases', title:'Achats Quotidiens', icon:'🛒', url:'/daily-purchases' },
+    { id:'daily_requests', title:'Demandes Clients', icon:'💬', url:'/daily-requests' },
+    { id:'daily_sales', title:'Ventes Quotidiennes', icon:'🛍️', url:'/daily-sales' },
     { id:'migration', title:'Migration Données', icon:'🔁', url:'/migration-manager' },
     { id:'cache', title:'Cache', icon:'🧱', url:'/cache-manager' },
     { id:'guide', title:'Guide', icon:'📘', url:'/guide' }
@@ -29,7 +31,7 @@
       return new Set([
         'invoices','quotations','products',
         'dashboard','clients','debts','suppliers',
-        'scan','barcode','daily_purchases','migration'
+        'scan','barcode','daily_purchases','daily_requests','daily_sales','migration'
       ]);
     }
     // Manager: curated set of business apps (no cache/migration by default; keep settings if desired)
@@ -37,7 +39,7 @@
       return new Set([
         'dashboard','products','clients','invoices','quotations','debts',
         'suppliers','supplier_invoices','reports','bank','scan','barcode',
-        'daily_recap','daily_purchases','guide','settings' // settings allowed for manager
+        'daily_recap','daily_purchases','daily_requests','daily_sales','guide','settings' // settings allowed for manager
       ]);
     }
     // Admin: all apps
@@ -109,7 +111,7 @@
         this.arrangeInGrid(visibleWindows, arrangement);
       }
 
-      this.updateDockVisibility();
+      updateDockVisibility();
     }
 
     // Arrange windows in a grid pattern

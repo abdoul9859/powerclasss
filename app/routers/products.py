@@ -54,6 +54,57 @@ async def can_modify_product(
         logging.error(f"Erreur lors de la vérification de modification du produit: {e}")
         raise HTTPException(status_code=500, detail="Erreur serveur")
 
+@router.get("/id/{product_id}/variants/available")
+async def get_available_variants(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Récupérer les variantes disponibles d'un produit"""
+    try:
+        product = db.query(Product).filter(Product.product_id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Produit non trouvé")
+        
+        available_variants = db.query(ProductVariant).filter(
+            ProductVariant.product_id == product_id,
+            ProductVariant.is_sold == False
+        ).all()
+        
+        variants_data = []
+        for v in available_variants:
+            # Récupérer les attributs de la variante
+            attributes = db.query(ProductVariantAttribute).filter(
+                ProductVariantAttribute.variant_id == v.variant_id
+            ).all()
+            
+            variant_data = {
+                "variant_id": v.variant_id,
+                "imei_serial": v.imei_serial,
+                "barcode": v.barcode,
+                "condition": v.condition,
+                "is_sold": v.is_sold,
+                "attributes": [
+                    {
+                        "attribute_name": attr.attribute_name,
+                        "attribute_value": attr.attribute_value
+                    }
+                    for attr in attributes
+                ]
+            }
+            variants_data.append(variant_data)
+        
+        return {
+            "product_id": product_id,
+            "product_name": product.name,
+            "available_variants": variants_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erreur lors de la récupération des variantes disponibles: {e}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
+
 @router.get("/id/{product_id}/variants/sold")
 async def get_sold_variants(
     product_id: int,

@@ -349,16 +349,18 @@ class SupplierInvoice(Base):
 
     invoice_id = Column(Integer, primary_key=True, index=True)
     supplier_id = Column(Integer, ForeignKey("suppliers.supplier_id", ondelete="SET NULL"), index=True)
-    invoice_number = Column(String(100), unique=True, nullable=False)
-    invoice_date = Column(DateTime, nullable=False)
+    invoice_number = Column(String(100), unique=True, nullable=True)  # Optionnel - peut être extrait du PDF
+    invoice_date = Column(DateTime, nullable=True)  # Optionnel - peut être extrait du PDF
     due_date = Column(DateTime)
-    description = Column(Text, nullable=False)  # Description simple du service/produit
-    amount = Column(Numeric(12, 2), nullable=False)  # Montant total de la facture
+    description = Column(Text, nullable=True)  # Optionnel - peut être extrait du PDF
+    amount = Column(Numeric(12, 2), nullable=True)  # Optionnel - peut être extrait du PDF
     paid_amount = Column(Numeric(12, 2), default=0)
     remaining_amount = Column(Numeric(12, 2), default=0)
     status = Column(String(20), default="pending")  # pending, partial, paid, overdue
     payment_method = Column(String(50))
     notes = Column(Text)
+    pdf_path = Column(String(500), nullable=False)  # Obligatoire - chemin vers le fichier PDF
+    pdf_filename = Column(String(255), nullable=False)  # Obligatoire - nom original du fichier PDF
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -562,6 +564,56 @@ class AppCache(Base):
     expires_at = Column(DateTime)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+# Demandes quotidiennes des clients
+class DailyClientRequest(Base):
+    __tablename__ = "daily_client_requests"
+
+    request_id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.client_id", ondelete="SET NULL"), index=True, nullable=True)
+    client_name = Column(String(100), nullable=False)  # Nom du client (peut être différent de la base)
+    client_phone = Column(String(20))  # Téléphone du client
+    product_description = Column(Text, nullable=False)  # Description textuelle du produit demandé
+    request_date = Column(Date, nullable=False, index=True)
+    status = Column(String(20), default="pending")  # pending, fulfilled, cancelled
+    notes = Column(Text)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Relations
+    client = relationship("Client")
+
+# Ventes quotidiennes
+class DailySale(Base):
+    __tablename__ = "daily_sales"
+
+    sale_id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.client_id", ondelete="SET NULL"), index=True, nullable=True)
+    client_name = Column(String(100), nullable=False)  # Nom du client
+    product_id = Column(Integer, ForeignKey("products.product_id", ondelete="SET NULL"), index=True, nullable=True)
+    product_name = Column(String(500), nullable=False)  # Nom du produit vendu
+    variant_id = Column(Integer, ForeignKey("product_variants.variant_id", ondelete="SET NULL"), index=True, nullable=True)
+    variant_imei = Column(String(255), nullable=True)  # IMEI de la variante vendue
+    variant_barcode = Column(String(128), nullable=True)  # Code-barres de la variante
+    variant_condition = Column(String(50), nullable=True)  # Condition de la variante
+    quantity = Column(Integer, nullable=False, default=1)
+    unit_price = Column(Numeric(10, 2), nullable=False)
+    total_amount = Column(Numeric(12, 2), nullable=False)
+    sale_date = Column(Date, nullable=False, index=True)
+    payment_method = Column(String(50), default="espece")  # espece, mobile, virement, cheque
+    invoice_id = Column(Integer, ForeignKey("invoices.invoice_id", ondelete="SET NULL"), nullable=True)  # Si lié à une facture
+    notes = Column(Text)
+    created_at = Column(DateTime, default=func.now())
+
+    # Relations
+    client = relationship("Client")
+    product = relationship("Product")
+    variant = relationship("ProductVariant")
+    invoice = relationship("Invoice")
+
+    __table_args__ = (
+        Index('ix_daily_sales_date_client', 'sale_date', 'client_id'),
+    )
 
 # Migrations de données
 class Migration(Base):
