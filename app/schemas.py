@@ -486,6 +486,7 @@ class SupplierInvoiceCreate(BaseModel):
     paid_amount: Optional[Decimal] = 0  # Montant déjà payé
     payment_method: Optional[str] = None
     notes: Optional[str] = None
+    pdf_filename: Optional[str] = None  # Nom du fichier PDF uploadé
 
 class SupplierInvoiceUpdate(BaseModel):
     invoice_number: Optional[str] = None
@@ -496,6 +497,7 @@ class SupplierInvoiceUpdate(BaseModel):
     payment_method: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
+    pdf_filename: Optional[str] = None
 
 class SupplierInvoiceResponse(BaseModel):
     invoice_id: int
@@ -511,6 +513,8 @@ class SupplierInvoiceResponse(BaseModel):
     status: str  # pending, partial, paid, overdue
     payment_method: Optional[str]
     notes: Optional[str]
+    pdf_path: Optional[str] = None  # Chemin vers le PDF
+    pdf_filename: Optional[str] = None  # Nom du fichier PDF
     created_at: datetime
     
     class Config:
@@ -564,6 +568,97 @@ class DailyPurchaseResponse(BaseModel):
     amount: Decimal
     payment_method: str
     reference: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# Schémas pour les demandes quotidiennes des clients
+class DailyClientRequestCreate(BaseModel):
+    client_id: Optional[int] = None
+    client_name: str
+    client_phone: Optional[str] = None
+    product_description: str
+    request_date: date
+    status: str = "pending"
+    notes: Optional[str] = None
+
+class DailyClientRequestUpdate(BaseModel):
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    client_phone: Optional[str] = None
+    product_description: Optional[str] = None
+    request_date: Optional[date] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+
+class DailyClientRequestResponse(BaseModel):
+    request_id: int
+    client_id: Optional[int]
+    client_name: str
+    client_phone: Optional[str]
+    product_description: str
+    request_date: date
+    status: str
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# Schémas pour les ventes quotidiennes
+class DailySaleCreate(BaseModel):
+    client_id: Optional[int] = None
+    client_name: str
+    product_id: Optional[int] = None
+    product_name: str
+    variant_id: Optional[int] = None
+    variant_imei: Optional[str] = None
+    variant_barcode: Optional[str] = None
+    variant_condition: Optional[str] = None
+    quantity: int = 1
+    unit_price: Decimal
+    total_amount: Decimal
+    sale_date: date
+    payment_method: str = "espece"
+    invoice_id: Optional[int] = None
+    notes: Optional[str] = None
+
+class DailySaleUpdate(BaseModel):
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    variant_id: Optional[int] = None
+    variant_imei: Optional[str] = None
+    variant_barcode: Optional[str] = None
+    variant_condition: Optional[str] = None
+    quantity: Optional[int] = None
+    unit_price: Optional[Decimal] = None
+    total_amount: Optional[Decimal] = None
+    sale_date: Optional[date] = None
+    payment_method: Optional[str] = None
+    invoice_id: Optional[int] = None
+    notes: Optional[str] = None
+
+class DailySaleResponse(BaseModel):
+    sale_id: int
+    client_id: Optional[int]
+    client_name: str
+    product_id: Optional[int]
+    product_name: str
+    variant_id: Optional[int]
+    variant_imei: Optional[str]
+    variant_barcode: Optional[str]
+    variant_condition: Optional[str]
+    quantity: int
+    unit_price: Decimal
+    total_amount: Decimal
+    sale_date: date
+    payment_method: str
+    invoice_id: Optional[int]
+    notes: Optional[str]
     created_at: datetime
 
     class Config:
