@@ -53,6 +53,149 @@
   const $ = sel => document.querySelector(sel);
   const $$ = sel => Array.from(document.querySelectorAll(sel));
 
+  // Intelligent Window Manager
+  class WindowManager {
+    constructor() {
+      this.autoArrange = true;
+      this.arrangementMode = 'auto'; // 'auto', 'manual', 'grid'
+    }
+
+    // Get visible windows (not hidden)
+    getVisibleWindows() {
+      return Array.from(windows.values()).filter(w => !w.el.classList.contains('hide'));
+    }
+
+    // Calculate optimal arrangement based on window count
+    calculateArrangement(windowCount) {
+      if (windowCount === 0) return null;
+      if (windowCount === 1) return { mode: 'fullscreen', layout: 'full' };
+      if (windowCount === 2) return { mode: 'split', layout: 'side-by-side' };
+      if (windowCount === 3) return { mode: 'grid', layout: '2x2', maxPerRow: 2 };
+      if (windowCount === 4) return { mode: 'grid', layout: '2x2', maxPerRow: 2 };
+      if (windowCount <= 6) return { mode: 'grid', layout: '3x2', maxPerRow: 3 };
+      if (windowCount <= 9) return { mode: 'grid', layout: '3x3', maxPerRow: 3 };
+      return { mode: 'grid', layout: '4x3', maxPerRow: 4 };
+    }
+
+    // Apply automatic arrangement
+    arrangeWindows() {
+      if (!this.autoArrange) return;
+      
+      const visibleWindows = this.getVisibleWindows();
+      const arrangement = this.calculateArrangement(visibleWindows.length);
+      
+      if (!arrangement) return;
+
+      // Clear existing tiling classes
+      visibleWindows.forEach(w => {
+        w.el.classList.remove('tile-left', 'tile-right', 'tile-full', 'tile-grid');
+        w.el.style.left = '';
+        w.el.style.right = '';
+        w.el.style.top = '';
+        w.el.style.bottom = '';
+        w.el.style.width = '';
+        w.el.style.height = '';
+      });
+
+      if (arrangement.mode === 'fullscreen') {
+        // Single window - fullscreen
+        visibleWindows[0].el.classList.add('tile-full');
+      } else if (arrangement.mode === 'split') {
+        // Two windows - side by side
+        visibleWindows[0].el.classList.add('tile-left');
+        visibleWindows[1].el.classList.add('tile-right');
+      } else if (arrangement.mode === 'grid') {
+        // Multiple windows - grid layout
+        this.arrangeInGrid(visibleWindows, arrangement);
+      }
+
+      this.updateDockVisibility();
+    }
+
+    // Arrange windows in a grid pattern
+    arrangeInGrid(windows, arrangement) {
+      const { maxPerRow } = arrangement;
+      const totalWindows = windows.length;
+      const rows = Math.ceil(totalWindows / maxPerRow);
+      const cols = Math.min(maxPerRow, totalWindows);
+
+      // Calculate grid dimensions
+      const padding = 24;
+      const dockHeight = 68;
+      const availableWidth = window.innerWidth - (padding * 2);
+      const availableHeight = window.innerHeight - (padding * 2) - dockHeight;
+      
+      const cellWidth = Math.floor((availableWidth - (padding * (cols - 1))) / cols);
+      const cellHeight = Math.floor((availableHeight - (padding * (rows - 1))) / rows);
+
+      // Ensure minimum sizes
+      const minWidth = 400;
+      const minHeight = 300;
+      const finalCellWidth = Math.max(minWidth, cellWidth);
+      const finalCellHeight = Math.max(minHeight, cellHeight);
+
+      windows.forEach((window, index) => {
+        const row = Math.floor(index / maxPerRow);
+        const col = index % maxPerRow;
+        
+        const x = padding + (col * (finalCellWidth + padding));
+        const y = padding + (row * (finalCellHeight + padding));
+        
+        window.el.style.left = `${x}px`;
+        window.el.style.top = `${y}px`;
+        window.el.style.width = `${finalCellWidth}px`;
+        window.el.style.height = `${finalCellHeight}px`;
+        window.el.classList.add('tile-grid');
+      });
+    }
+
+    // Toggle auto-arrangement
+    toggleAutoArrange() {
+      this.autoArrange = !this.autoArrange;
+      if (this.autoArrange) {
+        this.arrangeWindows();
+      }
+      this.updateArrangementIndicator();
+      return this.autoArrange;
+    }
+
+    // Update arrangement indicator
+    updateArrangementIndicator() {
+      const indicator = document.getElementById('arrangementIndicator');
+      if (indicator) {
+        if (this.autoArrange) {
+          indicator.classList.remove('manual');
+          indicator.querySelector('span').textContent = 'Auto';
+          indicator.title = 'Mode d\'arrangement automatique activé';
+        } else {
+          indicator.classList.add('manual');
+          indicator.querySelector('span').textContent = 'Manuel';
+          indicator.title = 'Mode d\'arrangement manuel activé';
+        }
+      }
+    }
+
+    // Manual arrangement modes
+    setArrangementMode(mode) {
+      this.arrangementMode = mode;
+      if (mode === 'manual') {
+        this.autoArrange = false;
+      } else {
+        this.autoArrange = true;
+        this.arrangeWindows();
+      }
+      this.updateArrangementIndicator();
+    }
+
+    // Force rearrange all windows
+    forceRearrange() {
+      this.arrangeWindows();
+    }
+  }
+
+  // Initialize window manager
+  const windowManager = new WindowManager();
+
   function renderLaunchpad(list){
     const grid = $('#lpGrid');
     const allowed = allowedAppIdsFor(USER_ROLE);
@@ -100,6 +243,8 @@
       w.el.classList.remove('hide');
       bringToFront(w.el);
       updateLaunchpadVisibility();
+      // Auto-arrange when showing existing window
+      windowManager.arrangeWindows();
       return w;
     }
     const el = document.createElement('div');
@@ -126,6 +271,7 @@
           <button class="btn btn-sm btn-outline-light tile-left">Gauche</button>
           <button class="btn btn-sm btn-outline-light tile-right">Droite</button>
           <button class="btn btn-sm btn-outline-light tile-full">Plein</button>
+          <button class="btn btn-sm btn-outline-light auto-arrange" title="Arrangement automatique"><i class="bi bi-grid-3x3-gap"></i></button>
         </div>
       </div>
       <div class="win-body"><iframe src="${app.url}?embed=1" referrerpolicy="no-referrer"></iframe></div>
@@ -138,6 +284,10 @@
     ensureDockIcon(app);
     bringToFront(el);
     updateLaunchpadVisibility();
+    
+    // Auto-arrange windows after creating new one
+    windowManager.arrangeWindows();
+    
     return w;
   }
 
@@ -162,18 +312,22 @@
       removeDockIcon(w.id);
       updateDockVisibility();
       updateLaunchpadVisibility();
+      // Auto-arrange remaining windows
+      windowManager.arrangeWindows();
     });
-    minBtn.addEventListener('click', (e) => { e.stopPropagation(); w.el.classList.add('hide'); setDockActive(w.id, true); updateLaunchpadVisibility(); });
+    minBtn.addEventListener('click', (e) => { e.stopPropagation(); w.el.classList.add('hide'); setDockActive(w.id, true); updateLaunchpadVisibility(); windowManager.arrangeWindows(); });
     maxBtn.addEventListener('click', (e) => { e.stopPropagation(); tileWindow(w, 'full'); });
 
     const btnLeft = w.el.querySelector('.win-actions .tile-left');
     const btnRight = w.el.querySelector('.win-actions .tile-right');
     const btnFull = w.el.querySelector('.win-actions .tile-full');
     const btnRefresh = w.el.querySelector('.win-actions .win-refresh');
-    [btnLeft, btnRight, btnFull, btnRefresh].forEach(btn => btn && btn.addEventListener('mousedown', (e)=>{ e.stopPropagation(); }));
-    if (btnLeft) btnLeft.addEventListener('click', (e) => { e.stopPropagation(); tileWindow(w, 'left'); updateLaunchpadVisibility(); });
-    if (btnRight) btnRight.addEventListener('click', (e) => { e.stopPropagation(); tileWindow(w, 'right'); updateLaunchpadVisibility(); });
-    if (btnFull) btnFull.addEventListener('click', (e) => { e.stopPropagation(); tileWindow(w, 'full'); updateLaunchpadVisibility(); });
+    const btnAutoArrange = w.el.querySelector('.win-actions .auto-arrange');
+    [btnLeft, btnRight, btnFull, btnRefresh, btnAutoArrange].forEach(btn => btn && btn.addEventListener('mousedown', (e)=>{ e.stopPropagation(); }));
+    if (btnLeft) btnLeft.addEventListener('click', (e) => { e.stopPropagation(); windowManager.setArrangementMode('manual'); tileWindow(w, 'left'); updateLaunchpadVisibility(); });
+    if (btnRight) btnRight.addEventListener('click', (e) => { e.stopPropagation(); windowManager.setArrangementMode('manual'); tileWindow(w, 'right'); updateLaunchpadVisibility(); });
+    if (btnFull) btnFull.addEventListener('click', (e) => { e.stopPropagation(); windowManager.setArrangementMode('manual'); tileWindow(w, 'full'); updateLaunchpadVisibility(); });
+    if (btnAutoArrange) btnAutoArrange.addEventListener('click', (e) => { e.stopPropagation(); windowManager.setArrangementMode('auto'); windowManager.forceRearrange(); updateLaunchpadVisibility(); });
     if (btnRefresh) btnRefresh.addEventListener('click', (e) => { e.stopPropagation(); const iframe = w.el.querySelector('iframe'); if (iframe) { try { const src = iframe.getAttribute('src') || ''; const url = new URL(src, window.location.origin); url.searchParams.set('_ts', Date.now()); iframe.setAttribute('src', url.toString()); } catch { iframe.src = iframe.src; } } });
 
     rHandle.addEventListener('mousedown', startResize.bind(null, w));
@@ -185,7 +339,9 @@
     const offX = ev.clientX - rect.left;
     const offY = ev.clientY - rect.top;
     // If was tiled/full, exit tiling to free-move
-    w.el.classList.remove('tile-left','tile-right','tile-full');
+    w.el.classList.remove('tile-left','tile-right','tile-full','tile-grid');
+    // Disable auto-arrange when manually dragging
+    windowManager.setArrangementMode('manual');
     updateDockVisibility();
     function move(e){
       const x = Math.max(0, Math.min(window.innerWidth - rect.width, e.clientX - offX));
@@ -204,6 +360,10 @@
     ev.stopPropagation();
     const rect = w.el.getBoundingClientRect();
     const start = { x: ev.clientX, y: ev.clientY, w: rect.width, h: rect.height };
+    // Disable auto-arrange when manually resizing
+    windowManager.setArrangementMode('manual');
+    // Remove tiling classes to allow free resizing
+    w.el.classList.remove('tile-left','tile-right','tile-full','tile-grid');
     function move(e){
       const nw = Math.max(420, start.w + (e.clientX - start.x));
       const nh = Math.max(300, start.h + (e.clientY - start.y));
@@ -218,7 +378,7 @@
   }
 
   function tileWindow(w, where){
-    w.el.classList.remove('tile-left','tile-right','tile-full');
+    w.el.classList.remove('tile-left','tile-right','tile-full','tile-grid');
     // Clear inline geometry so CSS classes can control layout
     Object.assign(w.el.style, { left:'', right:'', top:'', bottom:'', width:'', height:'' });
     if (where === 'left') w.el.classList.add('tile-left');
@@ -298,33 +458,48 @@
     $('#lpSearch').addEventListener('input', (e)=> filterLaunchpad(e.target.value));
 
     // Dock special actions
-    $('#tileH').addEventListener('click', () => {
-      // Two most recent windows side-by-side horizontally (left/right)
-      const ws = Array.from(windows.values()).slice(-2);
-      if (ws.length === 1) tileWindow(ws[0], 'full');
-      if (ws.length === 2){ tileWindow(ws[0], 'left'); tileWindow(ws[1], 'right'); }
-    });
-    $('#tileV').addEventListener('click', () => {
-      // Same action alias (for now behaves like side-by-side)
-      const ws = Array.from(windows.values()).slice(-2);
-      if (ws.length === 1) tileWindow(ws[0], 'full');
-      if (ws.length === 2){ tileWindow(ws[0], 'left'); tileWindow(ws[1], 'right'); }
-    });
-    $('#showAll').addEventListener('click', () => {
-      windows.forEach(w => w.el.classList.remove('hide'));
-      toggleLaunchpad(false);
-      updateLaunchpadVisibility();
-      updateDockVisibility();
+    $('#autoArrange').addEventListener('click', () => {
+      const isAuto = windowManager.toggleAutoArrange();
+      const btn = $('#autoArrange');
+      btn.classList.toggle('active', isAuto);
+      btn.title = isAuto ? 'Arrangement automatique activé' : 'Arrangement automatique désactivé';
     });
 
     // Keyboard shortcuts
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') toggleLaunchpad(false);
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'space') { e.preventDefault(); toggleLaunchpad(); }
+      // Ctrl/Cmd + A for auto-arrange
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { 
+        e.preventDefault(); 
+        const isAuto = windowManager.toggleAutoArrange();
+        const btn = $('#autoArrange');
+        if (btn) {
+          btn.classList.toggle('active', isAuto);
+          btn.title = isAuto ? 'Arrangement automatique activé' : 'Arrangement automatique désactivé';
+        }
+      }
+    });
+
+    // Handle window resize to re-arrange windows
+    window.addEventListener('resize', () => {
+      if (windowManager.autoArrange) {
+        windowManager.arrangeWindows();
+      }
     });
 
     // Show Launchpad by default (no windows opened automatically)
     toggleLaunchpad(true);
+
+    // Initialize auto-arrange button state
+    const autoArrangeBtn = $('#autoArrange');
+    if (autoArrangeBtn) {
+      autoArrangeBtn.classList.add('active');
+      autoArrangeBtn.title = 'Arrangement automatique activé';
+    }
+
+    // Initialize arrangement indicator
+    windowManager.updateArrangementIndicator();
 
     // Dock autohide handlers (robust)
     const dock = document.getElementById('dock');

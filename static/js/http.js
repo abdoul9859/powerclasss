@@ -1,19 +1,84 @@
 // Lightweight fetch-based HTTP client to replace Axios
 (function(){
   const baseURL = (() => {
-    try { return window.location.origin || ''; } catch { return ''; }
+    try { 
+      const origin = window.location.origin || '';
+      return origin;
+    } catch { 
+      return ''; 
+    }
   })();
+  
+  // Cache for backend protocol detection
+  let backendProtocol = null;
+  
+  // Function to detect backend protocol
+  async function detectBackendProtocol() {
+    if (backendProtocol !== null) return backendProtocol;
+    
+    try {
+      const loc = window.location;
+      if (loc.hostname === 'localhost' || loc.hostname === '127.0.0.1') {
+        // For localhost, assume HTTP for development
+        backendProtocol = 'http:';
+        return backendProtocol;
+      }
+      
+      // For other hosts, try HTTPS first, then fallback to HTTP
+      try {
+        const testUrl = `${loc.protocol}//${loc.hostname}:${loc.port || (loc.protocol === 'https:' ? '443' : '80')}/api`;
+        await fetch(testUrl, { method: 'HEAD', mode: 'no-cors' });
+        backendProtocol = loc.protocol;
+      } catch (e) {
+        // If HTTPS fails, try HTTP
+        const httpUrl = `http://${loc.hostname}:${loc.port || '80'}/api`;
+        try {
+          await fetch(httpUrl, { method: 'HEAD', mode: 'no-cors' });
+          backendProtocol = 'http:';
+        } catch (e2) {
+          // Fallback to current protocol
+          backendProtocol = loc.protocol;
+        }
+      }
+    } catch (e) {
+      // Fallback to current protocol
+      backendProtocol = window.location.protocol;
+    }
+    
+    return backendProtocol;
+  }
 
   function buildURL(url, params) {
     const hasProto = /^https?:\/\//i.test(url);
-    const u = new URL(hasProto ? url : (baseURL + url), baseURL);
-    // If the page is served over HTTPS, ensure same-host requests also use HTTPS
-    try {
-      const loc = window.location;
-      if (loc && loc.protocol === 'https:' && u.hostname === loc.hostname && u.protocol !== 'https:') {
-        u.protocol = 'https:';
+    
+    // For localhost, always use HTTP
+    let finalUrl;
+    if (hasProto) {
+      // If URL already has protocol, check if it's localhost and force HTTP
+      const urlObj = new URL(url);
+      if (urlObj.hostname === 'localhost' || urlObj.hostname === '127.0.0.1') {
+        urlObj.protocol = 'http:';
+        finalUrl = urlObj.toString();
+      } else {
+        finalUrl = url;
       }
-    } catch (e) { /* ignore */ }
+    } else {
+      // Construct URL from baseURL + path
+      const loc = window.location;
+      if (loc.hostname === 'localhost' || loc.hostname === '127.0.0.1') {
+        finalUrl = `http://${loc.hostname}:${loc.port || '8000'}${url}`;
+      } else {
+        finalUrl = baseURL + url;
+      }
+    }
+    
+    const u = new URL(finalUrl);
+    
+    // Ensure HTTP for localhost/127.0.0.1
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+      u.protocol = 'http:';
+    }
+    
     if (params && typeof params === 'object') {
       Object.entries(params).forEach(([k, v]) => {
         if (v === undefined || v === null) return;
@@ -24,7 +89,9 @@
         }
       });
     }
-    return u.toString();
+    
+    const finalResult = u.toString();
+    return finalResult;
   }
 
   function toHeadersObject(headers) {
@@ -99,4 +166,9 @@
   // Expose as api and as axios shim
   window.api = request;
   window.axios = request;
+  
+  // Detect backend protocol on load
+  detectBackendProtocol().catch(() => {
+    // Ignore errors during detection
+  });
 })();

@@ -57,8 +57,11 @@ async def cache_headers_middleware(request, call_next):
         elif content_type.startswith("text/html"):
             response.headers["Cache-Control"] = "no-store"
         # Help browsers auto-upgrade any stray http resources to https and enable HSTS
-        response.headers.setdefault("Content-Security-Policy", "upgrade-insecure-requests")
-        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+        # Only apply security headers in production (not on localhost)
+        if not (path.startswith("/") and (request.client.host in ["127.0.0.1", "localhost"] or 
+                request.headers.get("host", "").startswith(("localhost:", "127.0.0.1:")))):
+            response.headers.setdefault("Content-Security-Policy", "upgrade-insecure-requests")
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
     except Exception:
         # En cas de souci, on n'empêche pas la réponse de sortir
         pass

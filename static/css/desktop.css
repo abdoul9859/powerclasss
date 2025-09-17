@@ -85,6 +85,7 @@ body.gt-desktop-body {
   flex-direction: column;
   transform-origin: 50% 50%;
   animation: winIn .22s ease-out;
+  transition: left .3s ease, top .3s ease, width .3s ease, height .3s ease, right .3s ease, bottom .3s ease;
 }
 @keyframes winIn { from { transform: scale(.96); opacity:.0 } to { transform: scale(1); opacity:1 } }
 
@@ -179,8 +180,9 @@ body.gt-desktop-body {
 
 /* Dock */
 .dock { position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; height: var(--dock-height); backdrop-filter: blur(16px) saturate(130%); background: rgba(17,17,23,.65); border: 1px solid rgba(224,170,62,.28); border-radius: 16px; box-shadow: 0 18px 36px rgba(0,0,0,.5); display:flex; align-items:center; gap: 10px; padding: 10px; z-index: 10000; }
-.dock-item { width: 44px; height: 44px; border-radius: 10px; display:grid; place-items:center; color:var(--fg); background: rgba(224,170,62,.08); border:1px solid rgba(224,170,62,.25); box-shadow: inset 0 -2px 0 rgba(0,0,0,.2); }
+.dock-item { width: 44px; height: 44px; border-radius: 10px; display:grid; place-items:center; color:var(--fg); background: rgba(224,170,62,.08); border:1px solid rgba(224,170,62,.25); box-shadow: inset 0 -2px 0 rgba(0,0,0,.2); transition: all .2s ease; }
 .dock-item:hover { background: rgba(224,170,62,.16); }
+.dock-item.active { background: rgba(224,170,62,.25); border-color: rgba(224,170,62,.4); }
 .dock-apps { display:flex; gap: 10px; margin: 0 6px; }
 .dock-right { display:flex; gap: 10px; }
 
@@ -197,6 +199,7 @@ body.gt-desktop-body {
 .tile-left { left:24px; top:24px; bottom: calc(var(--dock-height) + 24px); width: calc(50% - 36px); height: auto; }
 .tile-right { right:24px; top:24px; bottom: calc(var(--dock-height) + 24px); width: calc(50% - 36px); height: auto; }
 .tile-full { left:24px; right:24px; top:24px; bottom: calc(var(--dock-height) + 24px); width:auto; height:auto; }
+.tile-grid { position: absolute; }
 
 /* When dock is hidden, let full-screen windows touch the bottom (overlay under dock when it shows) */
 .dock-hidden .tile-full { bottom: 24px; }

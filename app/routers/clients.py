@@ -126,14 +126,32 @@ async def create_client(
                         detail="Un client avec ce numéro de téléphone existe déjà",
                     )
 
-        db_client = Client(**client_data.dict())
+        # Créer le client en utilisant les champs explicitement
+        db_client = Client(
+            name=client_data.name,
+            contact=client_data.contact,
+            email=client_data.email,
+            phone=client_data.phone,
+            address=client_data.address,
+            city=client_data.city,
+            postal_code=client_data.postal_code,
+            country=client_data.country,
+            tax_number=client_data.tax_number,
+            notes=client_data.notes
+        )
         db.add(db_client)
         db.commit()
         db.refresh(db_client)
         return db_client
+    except HTTPException:
+        # Re-lever les HTTPException (comme les erreurs de validation) sans les transformer
+        raise
     except Exception as e:
         db.rollback()
         logging.error(f"Erreur lors de la création du client: {e}")
+        logging.error(f"Données reçues: {client_data.dict()}")
+        import traceback
+        logging.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Erreur serveur")
 
 @router.put("/{client_id}", response_model=ClientResponse)

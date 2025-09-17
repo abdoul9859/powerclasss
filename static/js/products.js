@@ -303,12 +303,12 @@ function initProductsPage() {
     attachFilterListeners();
 }
 
-// Etat de tri courant (par défaut: nom asc)
-let currentSort = { by: 'name', dir: 'asc' };
+// Etat de tri courant (par défaut: created_at desc - dernier ajouté en haut)
+let currentSort = { by: 'created_at', dir: 'desc' };
 
 function setSort(by, dir) {
-    const normalizedBy = (by || 'name').toLowerCase();
-    const normalizedDir = (dir || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
+    const normalizedBy = (by || 'created_at').toLowerCase();
+    const normalizedDir = (dir || 'desc').toLowerCase() === 'desc' ? 'desc' : 'asc';
     currentSort = { by: normalizedBy, dir: normalizedDir };
     currentPage = 1;
     loadProducts();
@@ -471,6 +471,9 @@ async function loadProducts() {
 // Cache pour les vérifications de modification des produits
 const productModificationCache = new Map();
 
+// Cache pour les variantes vendues
+const soldVariantsCache = new Map();
+
 async function canModifyProduct(productId) {
     // Vérifier le cache d'abord
     if (productModificationCache.has(productId)) {
@@ -488,6 +491,25 @@ async function canModifyProduct(productId) {
         console.error('Erreur lors de la vérification de modification:', error);
         // En cas d'erreur, permettre la modification par défaut
         return true;
+    }
+}
+
+async function loadSoldVariants(productId) {
+    // Vérifier le cache d'abord
+    if (soldVariantsCache.has(productId)) {
+        return soldVariantsCache.get(productId);
+    }
+    
+    try {
+        const response = await apiRequest(`/api/products/id/${productId}/variants/sold`);
+        const soldVariants = response.data?.sold_variants || [];
+        // Mettre en cache pour 5 minutes
+        soldVariantsCache.set(productId, soldVariants);
+        setTimeout(() => soldVariantsCache.delete(productId), 5 * 60 * 1000);
+        return soldVariants;
+    } catch (error) {
+        console.error('Erreur lors du chargement des variantes vendues:', error);
+        return [];
     }
 }
 
@@ -579,7 +601,8 @@ function displayProducts(products) {
     tbody.innerHTML = html;
     
     // Vérifier et désactiver les boutons pour les produits utilisés
-    checkAndDisableProductButtons(products);
+    // Les produits peuvent toujours être modifiés maintenant
+    // checkAndDisableProductButtons(products);
 }
 
 async function checkAndDisableProductButtons(products) {
@@ -922,11 +945,15 @@ async function loadProductForEdit(productId) {
         document.getElementById('productNotes').value = product.notes || '';
         populateProductConditionSelect(product.condition || '');
         
-        // Charger les variantes
-        loadVariants(product.variants || []);
+        // Charger les variantes vendues pour les protéger
+        const soldVariants = await loadSoldVariants(productId);
+        const soldVariantIds = new Set(soldVariants.map(v => v.variant_id));
         
-        // Appliquer la logique de visibilité selon la catégorie
+        // Appliquer la logique de visibilité selon la catégorie d'abord
         onCategoryChange();
+        
+        // Puis charger les variantes avec protection (après que les attributs de catégorie soient chargés)
+        loadVariants(product.variants || [], soldVariantIds);
 
         // S'assurer que le modal est visible
         try { bootstrap.Modal.getOrCreateInstance(document.getElementById('productModal')).show(); } catch(e) {}
@@ -937,7 +964,7 @@ async function loadProductForEdit(productId) {
     }
 }
 
-function loadVariants(variants) {
+function loadVariants(variants, soldVariantIds = new Set()) {
     const variantsList = document.getElementById('variantsList');
     variantCounter = 0;
     
@@ -948,14 +975,31 @@ function loadVariants(variants) {
     
     let html = '';
     variants.forEach(variant => {
-        html += createVariantForm(variant, variantCounter++);
+        const isSold = soldVariantIds.has(variant.variant_id);
+        html += createVariantForm(variant, variantCounter++, isSold);
     });
     
     variantsList.innerHTML = html;
     // Injecter les attributs de catégorie dans chaque carte déjà rendue
-    for (let i = 0; i < variantCounter; i++) {
-        renderVariantCategoryAttributes(i);
+    // Seulement si les attributs de catégorie sont déjà chargés ET pas encore rendus
+    if (currentCategoryAttributes && currentCategoryAttributes.length > 0) {
+        for (let i = 0; i < variantCounter; i++) {
+            const host = document.getElementById(`cat_attributes_${i}`);
+            if (host && !host.querySelector('[data-variant-attr-input="1"]')) {
+                renderVariantCategoryAttributes(i);
+            }
+        }
     }
+    
+    // Pré-remplir les attributs de catégorie avec les valeurs existantes
+    variants.forEach((variant, index) => {
+        if (variant.attributes && variant.attributes.length > 0) {
+            // Utiliser setTimeout pour s'assurer que le DOM est complètement rendu
+            setTimeout(() => {
+                prefillVariantCategoryAttributes(index, variant.attributes);
+            }, 100);
+        }
+    });
 }
 
 // Fonction appelée lors du changement de catégorie (selon les mémoires)
@@ -1085,13 +1129,19 @@ function addVariant() {
         variantsList.innerHTML = '';
     }
     
-    const variantHtml = createVariantForm(null, variantCounter++);
+    const variantHtml = createVariantForm(null, variantCounter++, false);
     variantsList.insertAdjacentHTML('beforeend', variantHtml);
     // Après insertion, injecter les attributs de catégorie pour cette variante
-    renderVariantCategoryAttributes(variantCounter - 1);
+    // Seulement si les attributs de catégorie sont déjà chargés
+    if (currentCategoryAttributes && currentCategoryAttributes.length > 0) {
+        // Utiliser setTimeout pour s'assurer que le DOM est mis à jour avant d'appeler renderVariantCategoryAttributes
+        setTimeout(() => {
+            renderVariantCategoryAttributes(variantCounter - 1);
+        }, 0);
+    }
 }
 
-function createVariantForm(variant = null, index) {
+function createVariantForm(variant = null, index, isSold = false) {
     const variantData = variant || {
         imei_serial: '',
         barcode: '',
@@ -1099,58 +1149,36 @@ function createVariantForm(variant = null, index) {
         attributes: []
     };
     
-    let attributesHtml = '';
-    if (variantData.attributes && variantData.attributes.length > 0) {
-        variantData.attributes.forEach((attr, attrIndex) => {
-            attributesHtml += `
-                <div class="row mb-2">
-                    <div class="col-md-6">
-                        <input type="text" class="form-control form-control-sm" 
-                               name="variant_${index}_attr_name_${attrIndex}" 
-                               placeholder="Nom attribut (ex: Couleur)" 
-                               value="${attr.attribute_name}">
-                    </div>
-                    <div class="col-md-6">
-                        <div class="input-group">
-                            <input type="text" class="form-control form-control-sm" 
-                                   name="variant_${index}_attr_value_${attrIndex}" 
-                                   placeholder="Valeur (ex: Noir)" 
-                                   value="${attr.attribute_value}">
-                            <button type="button" class="btn btn-outline-danger btn-sm" 
-                                    onclick="removeAttribute(this)">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-    }
+    
+    const disabledAttr = isSold ? 'disabled' : '';
+    const soldBadge = isSold ? '<span class="badge bg-warning ms-2">VENDUE</span>' : '';
+    const soldClass = isSold ? 'border-warning' : '';
     
     return `
-        <div class="card mb-3 variant-card" data-variant-index="${index}">
+        <div class="card mb-3 variant-card ${soldClass}" data-variant-index="${index}">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="mb-0">Variante #${index + 1}</h6>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeVariant(this)">
+                <h6 class="mb-0">Variante #${index + 1}${soldBadge}</h6>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeVariant(this)" ${disabledAttr}>
                     <i class="bi bi-trash"></i>
                 </button>
             </div>
             <div class="card-body">
+                ${isSold ? '<div class="alert alert-warning alert-sm mb-3"><i class="bi bi-exclamation-triangle me-2"></i>Cette variante est vendue et ne peut pas être modifiée</div>' : ''}
                 <div class="row">
                     <div class="col-md-6">
                         <label class="form-label">IMEI/Numéro de série *</label>
                         <input type="text" class="form-control" 
                                name="variant_${index}_imei" 
                                value="${variantData.imei_serial}" 
-                               required>
+                               required ${disabledAttr}>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Code-barres variante</label>
                         <div class="input-group">
                             <input type="text" class="form-control" 
                                    name="variant_${index}_barcode" 
-                                   value="${variantData.barcode || ''}">
-                            <button type="button" class="btn btn-outline-secondary" onclick="generateVariantBarcode(${index})" title="Générer un code-barres">
+                                   value="${variantData.barcode || ''}" ${disabledAttr}>
+                            <button type="button" class="btn btn-outline-secondary" onclick="generateVariantBarcode(${index})" title="Générer un code-barres" ${disabledAttr}>
                                 <i class="bi bi-upc-scan"></i>
                             </button>
                         </div>
@@ -1159,7 +1187,7 @@ function createVariantForm(variant = null, index) {
                 <div class="row mt-2">
                     <div class="col-md-6">
                         <label class="form-label">État de la variante</label>
-                        <select class="form-select" name="variant_${index}_condition" data-variant-condition="1">
+                        <select class="form-select" name="variant_${index}_condition" data-variant-condition="1" ${disabledAttr}>
                             <option value="">(Hériter du produit)</option>
                             ${allowedConditions.map(c => `<option value="${c}" ${variantData.condition === c ? 'selected' : ''}>${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('')}
                         </select>
@@ -1174,18 +1202,6 @@ function createVariantForm(variant = null, index) {
                     </div>
                 </div>
 
-                <div class="mt-3">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <label class="form-label mb-0">Attributs spécifiques</label>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" 
-                                onclick="addAttribute(${index})">
-                            <i class="bi bi-plus me-1"></i>Ajouter attribut
-                        </button>
-                    </div>
-                    <div id="attributes_${index}">
-                        ${attributesHtml || '<p class="text-muted small">Aucun attribut spécifique</p>'}
-                    </div>
-                </div>
             </div>
         </div>
     `;
@@ -1202,47 +1218,6 @@ function removeVariant(button) {
     }
 }
 
-function addAttribute(variantIndex) {
-    const attributesContainer = document.getElementById(`attributes_${variantIndex}`);
-    
-    if (attributesContainer.innerHTML.includes('Aucun attribut')) {
-        attributesContainer.innerHTML = '';
-    }
-    
-    const attrIndex = attributesContainer.children.length;
-    const attributeHtml = `
-        <div class="row mb-2">
-            <div class="col-md-6">
-                <input type="text" class="form-control form-control-sm" 
-                       name="variant_${variantIndex}_attr_name_${attrIndex}" 
-                       placeholder="Nom attribut (ex: Couleur)">
-            </div>
-            <div class="col-md-6">
-                <div class="input-group">
-                    <input type="text" class="form-control form-control-sm" 
-                           name="variant_${variantIndex}_attr_value_${attrIndex}" 
-                           placeholder="Valeur (ex: Noir)">
-                    <button type="button" class="btn btn-outline-danger btn-sm" 
-                            onclick="removeAttribute(this)">
-                        <i class="bi bi-trash"></i>
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    attributesContainer.insertAdjacentHTML('beforeend', attributeHtml);
-}
-
-function removeAttribute(button) {
-    const attributeRow = button.closest('.row');
-    const container = attributeRow.parentElement;
-    attributeRow.remove();
-    
-    if (container.children.length === 0) {
-        container.innerHTML = '<p class="text-muted small">Aucun attribut spécifique</p>';
-    }
-}
 
 function serializeVariants() {
     const variants = [];
@@ -1257,26 +1232,11 @@ function serializeVariants() {
         if (imeiInput && imeiInput.value.trim()) {
             const variant = {
                 imei_serial: imeiInput.value.trim(),
-                barcode: barcodeInput ? barcodeInput.value.trim() : '',
-                condition: condSelect ? (condSelect.value || '') : '',
+                barcode: barcodeInput && barcodeInput.value.trim() ? barcodeInput.value.trim() : null,
+                condition: condSelect && condSelect.value ? condSelect.value : null,
                 attributes: []
             };
             
-            // Sérialiser les attributs libres (anciens champs)
-            const attributeNames = card.querySelectorAll(`input[name^="variant_${index}_attr_name_"]`);
-            const attributeValues = card.querySelectorAll(`input[name^="variant_${index}_attr_value_"]`);
-            
-            for (let i = 0; i < attributeNames.length; i++) {
-                const name = attributeNames[i].value.trim();
-                const value = attributeValues[i].value.trim();
-                
-                if (name && value) {
-                    variant.attributes.push({
-                        attribute_name: name,
-                        attribute_value: value
-                    });
-                }
-            }
 
             // Sérialiser les attributs de catégorie (nouveau système)
             const catAttrInputs = card.querySelectorAll('[data-variant-attr-input="1"]');
@@ -1337,18 +1297,21 @@ async function saveProduct() {
         
         const productData = {
             name: document.getElementById('productName').value.trim(),
-            category: document.getElementById('productCategory').value,
-            brand: document.getElementById('productBrand').value.trim(),
-            model: document.getElementById('productModel').value.trim(),
+            category: document.getElementById('productCategory').value || null,
+            brand: document.getElementById('productBrand').value.trim() || null,
+            model: document.getElementById('productModel').value.trim() || null,
             price: parseInt(document.getElementById('productPrice').value, 10) || 0,
             purchase_price: parseInt(document.getElementById('productPurchasePrice').value, 10) || 0,
-            barcode: document.getElementById('productBarcode').value.trim(),
+            barcode: document.getElementById('productBarcode').value.trim() || null,
             quantity: parseInt(document.getElementById('productQuantity').value) || 0,
-            description: document.getElementById('productDescription').value.trim(),
-            notes: document.getElementById('productNotes').value.trim(),
-            condition: requiresVariants ? undefined : (document.getElementById('productCondition').value || ''),
+            description: document.getElementById('productDescription').value.trim() || null,
+            notes: document.getElementById('productNotes').value.trim() || null,
+            condition: requiresVariants ? null : (document.getElementById('productCondition').value || null),
             variants: variants
         };
+
+        console.log('🔍 Product data to send:', productData);
+        console.log('🔍 Variants data:', variants);
 
         // Si variantes requises, ne pas conserver visuellement une valeur de condition produit
         if (requiresVariants) {
@@ -1515,18 +1478,8 @@ async function viewProduct(productId) {
 }
 
 async function editProduct(productId) {
-    try {
-        const canModify = await canModifyProduct(productId);
-        if (!canModify) {
-            showAlert('Ce produit ne peut pas être modifié car il est déjà utilisé dans des factures, devis ou bons de livraison', 'warning');
-            return;
-        }
-        openProductModal(productId);
-    } catch (error) {
-        console.error('Erreur lors de la vérification de modification:', error);
-        // En cas d'erreur, permettre la modification par défaut
-        openProductModal(productId);
-    }
+    // Les produits peuvent toujours être modifiés maintenant
+    openProductModal(productId);
 }
 
 // Impression individuelle d'un code-barres de variante
@@ -1689,7 +1642,10 @@ async function fetchAndRenderCategoryAttributes(categoryName) {
         // Mettre à jour les cartes variantes existantes
         document.querySelectorAll('.variant-card').forEach(card => {
             const idx = Number(card.dataset.variantIndex);
-            renderVariantCategoryAttributes(idx);
+            const host = document.getElementById(`cat_attributes_${idx}`);
+            if (host && !host.querySelector('[data-variant-attr-input="1"]')) {
+                renderVariantCategoryAttributes(idx);
+            }
         });
     } catch (e) {
         console.error('fetchAndRenderCategoryAttributes error:', e);
@@ -1719,65 +1675,36 @@ function renderCategoryAttributesPreview(attrs) {
 function renderVariantCategoryAttributes(index) {
     const host = document.getElementById(`cat_attributes_${index}`);
     if (!host) return;
+    
+    console.log(`[DEBUG] renderVariantCategoryAttributes(${index}) - host:`, host);
+    console.log(`[DEBUG] currentCategoryAttributes:`, currentCategoryAttributes);
+    
     if (!currentCategoryAttributes || currentCategoryAttributes.length === 0) {
         host.innerHTML = '<p class="text-muted small mb-0">Aucun attribut pour cette catégorie</p>';
         return;
     }
+    
+    // Vérifier si les attributs sont déjà rendus pour éviter les duplications
+    const existingInputs = host.querySelectorAll('[data-variant-attr-input="1"]');
+    console.log(`[DEBUG] existingInputs.length:`, existingInputs.length);
+    console.log(`[DEBUG] host.innerHTML before:`, host.innerHTML);
+    
+    if (existingInputs.length > 0) {
+        // Les attributs sont déjà rendus, ne pas les dupliquer
+        console.log(`[DEBUG] Attributs déjà rendus, skip pour variante ${index}`);
+        return;
+    }
+    
+    // Vider complètement le contenu avant de le remplir
+    host.innerHTML = '';
+    
     const fields = currentCategoryAttributes.map((a, i) => renderAttrInput(index, a, i)).join('');
     host.innerHTML = fields;
-    // Après rendu, tenter de pré-remplir à partir des "Attributs spécifiques"
-    try { prefillVariantCategoryAttrValues(index); } catch(e) { console.warn('prefillVariantCategoryAttrValues error:', e); }
+    
+    console.log(`[DEBUG] host.innerHTML after:`, host.innerHTML);
+    
 }
 
-// Construit une map des attributs spécifiques saisis pour une variante: name(normalisé) -> [valeurs]
-function buildVariantSpecificAttrMap(index) {
-    const container = document.getElementById(`attributes_${index}`);
-    const map = {};
-    if (!container) return map;
-    const nameInputs = container.querySelectorAll(`[name^="variant_${index}_attr_name_"]`);
-    nameInputs.forEach(nameInput => {
-        const name = (nameInput.value || '').trim();
-        if (!name) return;
-        const suffix = nameInput.name.split(`variant_${index}_attr_name_`)[1];
-        const valInput = container.querySelector(`[name="variant_${index}_attr_value_${suffix}"]`);
-        const val = (valInput && valInput.value != null) ? String(valInput.value).trim() : '';
-        const key = name.toLowerCase();
-        if (!map[key]) map[key] = [];
-        if (val) map[key].push(val);
-    });
-    return map;
-}
-
-// Pré-remplit les inputs d'attributs de catégorie d'une carte variante à partir de la map spécifique
-function prefillVariantCategoryAttrValues(index) {
-    const card = document.querySelector(`.variant-card[data-variant-index="${index}"]`);
-    if (!card) return;
-    const specificMap = buildVariantSpecificAttrMap(index);
-    if (!specificMap || Object.keys(specificMap).length === 0) return;
-    const inputs = card.querySelectorAll('[data-variant-attr-input="1"]');
-    inputs.forEach(input => {
-        const attrName = (input.dataset.attrName || '').toLowerCase().trim();
-        if (!attrName || !(attrName in specificMap)) return;
-        const values = specificMap[attrName];
-        const type = input.dataset.inputType;
-        if (type === 'select') {
-            // Choisir la première valeur correspondante disponible dans la liste
-            const options = Array.from(input.options).map(o => o.value.toLowerCase());
-            const match = values.find(v => options.includes(String(v).toLowerCase()));
-            if (match) input.value = match;
-        } else if (type === 'checkbox') {
-            // Coche si la valeur 'true'/'1' est trouvée
-            const match = values.find(v => ['true','1','oui','yes'].includes(String(v).toLowerCase()));
-            input.checked = !!match;
-        } else if (type === 'number') {
-            const v = values[0];
-            if (v != null && v !== '') input.value = v;
-        } else { // text
-            const v = values[0];
-            if (v != null && v !== '') input.value = v;
-        }
-    });
-}
 
 function renderAttrInput(index, attr, order) {
     const baseId = `v${index}_attr_${attr.attribute_id || order}`;
@@ -1828,4 +1755,71 @@ function renderAttrInput(index, attr, order) {
             </div>`;
         }
     }
+}
+
+// Fonction pour pré-remplir les attributs de catégorie avec les valeurs existantes des variantes
+function prefillVariantCategoryAttributes(index, variantAttributes = []) {
+    const card = document.querySelector(`.variant-card[data-variant-index="${index}"]`);
+    if (!card || !variantAttributes || variantAttributes.length === 0) return;
+    
+    console.log(`[DEBUG] prefillVariantCategoryAttributes(${index}) - variantAttributes:`, variantAttributes);
+    
+    // Créer une map des attributs existants par nom
+    const attrMap = {};
+    variantAttributes.forEach(attr => {
+        const name = attr.attribute_name;
+        if (!attrMap[name]) attrMap[name] = [];
+        attrMap[name].push(attr.attribute_value);
+    });
+    
+    console.log(`[DEBUG] attrMap:`, attrMap);
+    
+    // Pré-remplir chaque input d'attribut de catégorie
+    const inputs = card.querySelectorAll('[data-variant-attr-input="1"]');
+    inputs.forEach(input => {
+        const attrName = input.dataset.attrName;
+        const inputType = input.dataset.inputType;
+        const values = attrMap[attrName];
+        
+        if (!values || values.length === 0) return;
+        
+        console.log(`[DEBUG] Pré-remplissage ${attrName} (${inputType}) avec:`, values);
+        
+        switch (inputType) {
+            case 'select':
+                // Sélectionner la première valeur correspondante
+                const option = Array.from(input.options).find(opt => 
+                    values.some(val => val === opt.value)
+                );
+                if (option) {
+                    input.value = option.value;
+                    console.log(`[DEBUG] Sélectionné: ${option.value}`);
+                }
+                break;
+                
+            case 'multiselect':
+                // Sélectionner toutes les valeurs correspondantes
+                Array.from(input.options).forEach(opt => {
+                    opt.selected = values.includes(opt.value);
+                });
+                break;
+                
+            case 'checkbox':
+            case 'boolean':
+                // Cocher si la valeur 'true' est trouvée
+                const hasTrue = values.some(val => 
+                    ['true', '1', 'oui', 'yes'].includes(String(val).toLowerCase())
+                );
+                input.checked = hasTrue;
+                break;
+                
+            case 'text':
+            case 'number':
+                // Utiliser la première valeur
+                if (values[0]) {
+                    input.value = values[0];
+                }
+                break;
+        }
+    });
 }

@@ -43,6 +43,24 @@
       background: rgba(255,255,255,0.14);
       font-size: 12px;
     }
+    .top-right-actions .arrangement-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(224,170,62,0.15);
+      color: var(--mustard-300);
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid rgba(224,170,62,0.3);
+      margin-right: 6px;
+    }
+    .top-right-actions .arrangement-indicator.manual {
+      background: rgba(255,87,87,0.15);
+      color: #ff5757;
+      border-color: rgba(255,87,87,0.3);
+    }
     .top-right-actions .logout-btn, .lp-actions .btn-logout, .top-right-actions .refresh-btn {
       border: none;
       border-radius: 10px;
@@ -86,6 +104,10 @@
   <div id="desktop" class="desktop{% if bg_val %} custom-bg{% endif %}" {% if bg_val %}style="--desktop-bg-url: url('{{ bg_val }}')"{% endif %}>
     <!-- Top-right user indicator + logout -->
     <div class="top-right-actions">
+      <div id="arrangementIndicator" class="arrangement-indicator" title="Mode d'arrangement automatique">
+        <i class="bi bi-grid-3x3-gap"></i>
+        <span>Auto</span>
+      </div>
       <div id="userIndicator" class="user-chip" title="Utilisateur connecté">
         <i class="bi bi-person-circle me-2"></i>
         <span class="user-name">Utilisateur</span>
@@ -158,9 +180,7 @@
       <button id="showLaunchpad" class="dock-item" title="Launchpad"><i class="bi bi-grid-3x3-gap-fill"></i></button>
       <div id="dockApps" class="dock-apps"></div>
       <div class="dock-right">
-        <button id="tileH" class="dock-item" title="Partager écran horizontal"><i class="bi bi-layout-split"></i></button>
-        <button id="tileV" class="dock-item" title="Partager écran vertical"><i class="bi bi-layout-three-columns"></i></button>
-        <button id="showAll" class="dock-item" title="Afficher toutes les fenêtres"><i class="bi bi-windows"></i></button>
+        <button id="autoArrange" class="dock-item" title="Arrangement automatique"><i class="bi bi-grid-3x3-gap"></i></button>
       </div>
     </div>
     <div id="hotzone" class="hotzone" aria-hidden="true"></div>
