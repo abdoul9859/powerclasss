@@ -7,18 +7,15 @@
     { id:'invoices', title:'Factures', icon:'🧾', url:'/invoices' },
     { id:'quotations', title:'Devis', icon:'📄', url:'/quotations' },
     { id:'debts', title:'Dettes', icon:'💳', url:'/debts' },
-    { id:'suppliers', title:'Fournisseurs', icon:'🏭', url:'/suppliers' },
     { id:'supplier_invoices', title:'Factures Fournisseur', icon:'🧰', url:'/supplier-invoices' },
     { id:'reports', title:'Rapports', icon:'📈', url:'/reports' },
     { id:'bank', title:'Banque', icon:'🏦', url:'/bank-transactions' },
     { id:'scan', title:'Scanner', icon:'🧪', url:'/scan' },
-    { id:'barcode', title:'Générateur Codes-Barres', icon:'🏷️', url:'/barcode-generator' },
     { id:'settings', title:'Paramètres', icon:'⚙️', url:'/settings' },
     { id:'daily_recap', title:'Récap Quotidien', icon:'🗓️', url:'/daily-recap' },
     { id:'daily_purchases', title:'Achats Quotidiens', icon:'🛒', url:'/daily-purchases' },
     { id:'daily_requests', title:'Demandes Clients', icon:'💬', url:'/daily-requests' },
     { id:'daily_sales', title:'Ventes Quotidiennes', icon:'🛍️', url:'/daily-sales' },
-    { id:'migration', title:'Migration Données', icon:'🔁', url:'/migration-manager' },
     { id:'cache', title:'Cache', icon:'🧱', url:'/cache-manager' },
     { id:'guide', title:'Guide', icon:'📘', url:'/guide' }
   ];
@@ -30,15 +27,15 @@
     if (role === 'cashier' || role === 'user') {
       return new Set([
         'invoices','quotations','products',
-        'dashboard','clients','debts','suppliers',
-        'scan','barcode','daily_purchases','daily_requests','daily_sales','migration'
+        'dashboard','clients','debts',
+        'scan','daily_purchases','daily_requests','daily_sales'
       ]);
     }
     // Manager: curated set of business apps (no cache/migration by default; keep settings if desired)
     if (role === 'manager') {
       return new Set([
         'dashboard','products','clients','invoices','quotations','debts',
-        'suppliers','supplier_invoices','reports','bank','scan','barcode',
+        'supplier_invoices','reports','bank','scan',
         'daily_recap','daily_purchases','daily_requests','daily_sales','guide','settings' // settings allowed for manager
       ]);
     }
