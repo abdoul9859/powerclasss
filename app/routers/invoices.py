@@ -92,7 +92,7 @@ async def list_invoices(
 ):
     """Lister les factures avec filtres"""
     # Utiliser un JOIN avec la table des clients pour récupérer le nom du client
-    query = db.query(Invoice, Client.name.label('client_name')).join(Client, Invoice.client_id == Client.client_id).order_by(desc(Invoice.date))
+    query = db.query(Invoice, Client.name.label('client_name')).join(Client, Invoice.client_id == Client.client_id).order_by(desc(Invoice.created_at))
     
     if status_filter:
         query = query.filter(Invoice.status == status_filter)
@@ -150,7 +150,7 @@ async def list_invoices_paginated(
     search: Optional[str] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    sort_by: Optional[str] = Query("date"),  # created_at | date | number | total | status | client
+    sort_by: Optional[str] = Query("created_at"),  # created_at | date | number | total | status | client
     sort_dir: Optional[str] = Query("desc"),       # asc | desc
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
