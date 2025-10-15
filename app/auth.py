@@ -83,27 +83,21 @@ def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    # If configured, trust JWT claims and avoid DB lookup
-    if AUTH_TRUST_JWT_CLAIMS:
-        # Map common fields expected across the app
-        claims = {
-            "username": payload.get("sub"),
-            "user_id": payload.get("user_id"),
-            "email": payload.get("email"),
-            "full_name": payload.get("full_name"),
-            "role": payload.get("role", "user"),
-            "is_active": payload.get("is_active", True),
-        }
-        # Minimal active check
-        if not bool(claims.get("is_active", True)):
-            raise credentials_exception
-        return AuthUser(**claims)
-
-    # Default behavior: validate against DB
-    user = db.query(User).filter(User.username == username).first()
-    if user is None:
+    # Utiliser les informations du JWT directement sans vérifier la base de données
+    # Cela accélère considérablement le chargement des listes (produits, devis, factures)
+    # On garde cette méthode rapide par défaut maintenant
+    claims = {
+        "username": payload.get("sub"),
+        "user_id": payload.get("user_id"),
+        "email": payload.get("email"),
+        "full_name": payload.get("full_name"),
+        "role": payload.get("role", "user"),
+        "is_active": payload.get("is_active", True),
+    }
+    # Minimal active check
+    if not bool(claims.get("is_active", True)):
         raise credentials_exception
-    return user
+    return AuthUser(**claims)
 
 def require_role(required_role: str):
     def role_checker(current_user: User = Depends(get_current_user)):

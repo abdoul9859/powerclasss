@@ -13,16 +13,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return hasAuthManager && (window.authManager.isAuthenticatedSync() || hasUser);
     };
 
-    if (!ready()) {
-        // Retenter après la vérification d'auth
-        setTimeout(() => {
-            if (!ready()) return;
-            loadClients();
-            setupEventListeners();
-        }, 300);
-        return;
-    }
-    
+    // Initialiser immédiatement sans délai pour un chargement instantané
     loadClients();
     setupEventListeners();
     

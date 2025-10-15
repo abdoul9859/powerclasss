@@ -27,13 +27,7 @@ document.addEventListener('DOMContentLoaded', function() {
         loadProducts();
     };
 
-    if (!ready()) {
-        setTimeout(() => {
-            if (!ready()) return;
-            init();
-        }, 300);
-        return;
-    }
+    // Initialiser immédiatement sans délai pour un chargement instantané
     init();
 });
 

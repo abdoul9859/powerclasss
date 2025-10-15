@@ -50,17 +50,17 @@ function getStatusBadgeClass(status) {
 // Fonction utilitaire global pour charger des données avec timeout et gestion d'erreur
 async function safeLoadData(apiCall, options = {}) {
     const {
-        timeout = 20000, // 20 secondes par défaut
+        timeout = 15000, // 15 secondes par défaut (réduit de 20s)
         fallbackData = [],
         showSpinner = true,
         spinnerElement = null,
         errorMessage = 'Erreur lors du chargement des données',
-        retryCount = 2
+        retryCount = 1 // Réduit de 2 à 1 retry
     } = options;
 
     let timeoutId;
     let attempt = 0;
-    
+
     while (attempt <= retryCount) {
         try {
             // Indicateur visuel désactivé volontairement (aucun spinner)
@@ -74,10 +74,10 @@ async function safeLoadData(apiCall, options = {}) {
 
             // Exécuter l'appel API avec timeout
             const result = await Promise.race([apiCall(), timeoutPromise]);
-            
+
             // Nettoyer le timeout
             clearTimeout(timeoutId);
-            
+
             // Vérifier si la réponse est valide
             if (result && result.data !== undefined) {
                 return result;
@@ -85,26 +85,26 @@ async function safeLoadData(apiCall, options = {}) {
                 // Réponse invalide, retourner données vides
                 return { data: fallbackData };
             }
-            
+
         } catch (error) {
             console.error(`safeLoadData error (attempt ${attempt + 1}):`, error);
-            
+
             attempt++;
-            
+
             // Si c'est le dernier essai, gérer l'erreur
             if (attempt > retryCount) {
                 // Afficher l'erreur à l'utilisateur si demandé
                 if (errorMessage && typeof showAlert === 'function') {
                     showAlert(errorMessage, 'warning');
                 }
-                
+
                 // Aucun spinner à cacher
-                
+
                 return { data: fallbackData };
             }
-            
-            // Attendre un peu avant de réessayer (exponential backoff)
-            const backoff = Math.min(5000, 1000 * Math.pow(2, attempt - 1));
+
+            // Attendre un peu avant de réessayer (backoff réduit)
+            const backoff = Math.min(500, 200 * Math.pow(2, attempt - 1)); // Réduit de 5000ms max à 500ms max
             await new Promise(resolve => setTimeout(resolve, backoff));
         } finally {
             // Nettoyer le timeout au cas où

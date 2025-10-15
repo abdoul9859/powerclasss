@@ -17,6 +17,23 @@ let currentFilters = {
 let variantCounter = 0;
 // Map nomCategorie -> { requires_variants: boolean }
 
+// Charger les paramètres de stock pour obtenir le seuil de stock faible
+async function loadStockSettings() {
+    try {
+        if (window.apiStorage && typeof window.apiStorage.getAppSettings === 'function') {
+            const settings = await window.apiStorage.getAppSettings();
+            const th = settings && settings.stock ? settings.stock.lowStockThreshold : null;
+            const n = Number(th);
+            if (Number.isFinite(n) && n >= 0) {
+                lowStockThreshold = n;
+            }
+        }
+    } catch (e) {
+        // Utiliser la valeur par défaut en cas d'erreur
+        console.warn('Impossible de charger le seuil de stock, utilisation du défaut:', e);
+    }
+}
+
 function populateConditionFilter(value = '') {
     const sel = document.getElementById('conditionFilter');
     if (!sel) return;
@@ -33,6 +50,8 @@ function populateConditionFilter(value = '') {
 let allowedConditions = ["neuf", "occasion", "venant"]; // fallback
 let defaultCondition = "neuf";
 const PAGE_SIZE = 20;
+// Seuil de stock critique (par défaut), sera remplacé par les paramètres d'application si disponibles
+let lowStockThreshold = 3;
 
 // Si le template a préchargé des stats, les utiliser pour accélérer l'init
 (function bootstrapPreloadedStats(){
@@ -239,7 +258,7 @@ function attachFilterListeners() {
     }
 }
 
-function initProductsPage() {
+async function initProductsPage() {
     console.log('🚀 products.js - Initialisation: chargement des produits, états et catégories...');
 
     // Si le template a préchargé les catégories, peupler rapidement la config
@@ -293,10 +312,10 @@ function initProductsPage() {
             if (input) input.value = q;
             currentFilters.search = q;
             currentPage = 1;
-            setTimeout(() => { try { loadProducts(); } catch(e) {} }, 50);
+            try { loadProducts(); } catch(e) {}
         }
         if (selectedId) {
-            setTimeout(() => { try { viewProduct(Number(selectedId)); } catch(e) {} }, 150);
+            try { viewProduct(Number(selectedId)); } catch(e) {}
         }
     } catch(e) { /* ignore */ }
 
@@ -353,15 +372,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return hasToken || hasUser;
     };
 
-    if (!ready()) {
-        // Retenter brièvement après la vérification silencieuse d'auth.js
-        setTimeout(() => {
-            if (!ready()) return;
-            initProductsPage();
-        }, 300);
-        return;
-    }
-
+    // Initialiser immédiatement sans délai pour un chargement instantané
     initProductsPage();
 });
 
@@ -533,9 +544,11 @@ function displayProducts(products) {
         // Badge d'état au niveau produit: seulement si pas de variantes
         const condBadge = (!hasVariants && product.condition) ? `<span class="badge bg-secondary ms-1">${product.condition}</span>` : '';
 
-        // Rupture si 0 dispo (variante) ou quantité 0 (sans variante)
-        const isOutOfStock = hasVariants ? (availableVariants <= 0) : (Number(product.quantity) <= 0);
-        const stockBadgeClass = isOutOfStock ? 'bg-danger' : (hasVariants ? 'bg-info' : 'bg-primary');
+        // Calcul du stock disponible et application du seuil critique
+        const stockCount = hasVariants ? availableVariants : Number(product.quantity);
+        const isOutOfStock = stockCount <= 0;
+        const isLowStock = !isOutOfStock && (stockCount <= Number(lowStockThreshold || 0));
+        const stockBadgeClass = (isOutOfStock || isLowStock) ? 'bg-danger' : (hasVariants ? 'bg-info' : 'bg-primary');
 
         // Comptes par état pour variantes disponibles (préférence au résumé backend)
         let conditionBadges = '';
@@ -561,9 +574,15 @@ function displayProducts(products) {
         html += `
             <tr>
                 <td>
-                    <div>
-                        <strong>${product.name}</strong> ${condBadge}
-                        ${product.brand ? `<br><small class="text-muted">${product.brand} ${product.model || ''}</small>` : ''}
+                    <div class="d-flex align-items-center gap-2">
+                        ${product.image_path ? `
+                            <img src="/${product.image_path}" alt="${product.name}"
+                                 style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;">
+                        ` : ''}
+                        <div>
+                            <strong>${product.name}</strong> ${condBadge}
+                            ${product.brand ? `<br><small class="text-muted">${product.brand} ${product.model || ''}</small>` : ''}
+                        </div>
                     </div>
                 </td>
                 <td>
@@ -582,12 +601,12 @@ function displayProducts(products) {
                         <button class="btn btn-outline-info" onclick="viewProduct(${product.product_id})" title="Voir détails">
                             <i class="bi bi-eye"></i>
                         </button>
-                        <button class="btn btn-outline-primary" onclick="editProduct(${product.product_id})" 
+                        <button class="btn btn-outline-primary" onclick="editProduct(${product.product_id})"
                                 id="edit-btn-${product.product_id}" title="Modifier">
                             <i class="bi bi-pencil"></i>
                         </button>
                         ${authManager.isAdmin() ? `
-                            <button class="btn btn-outline-danger" onclick="deleteProduct(${product.product_id})" 
+                            <button class="btn btn-outline-danger" onclick="deleteProduct(${product.product_id})"
                                     id="delete-btn-${product.product_id}" title="Supprimer">
                                 <i class="bi bi-trash"></i>
                             </button>
@@ -919,7 +938,15 @@ function clearProductForm() {
     document.getElementById('productId').value = '';
     document.getElementById('variantsList').innerHTML = '<p class="text-muted text-center">Aucune variante ajoutée</p>';
     variantCounter = 0;
-    
+
+    // Clear image preview
+    const preview = document.getElementById('productImagePreview');
+    const previewImg = document.getElementById('productImagePreviewImg');
+    const imageFile = document.getElementById('productImageFile');
+    if (preview) preview.style.display = 'none';
+    if (previewImg) previewImg.src = '';
+    if (imageFile) imageFile.value = '';
+
     // Réinitialiser la visibilité des champs
     showProductBarcodeField();
     showQuantityField();
@@ -938,6 +965,7 @@ async function loadProductForEdit(productId) {
         document.getElementById('productBrand').value = product.brand || '';
         document.getElementById('productModel').value = product.model || '';
         document.getElementById('productPrice').value = Math.round(product.price || 0);
+        document.getElementById('productWholesalePrice').value = Math.round(product.wholesale_price || 0);
         document.getElementById('productPurchasePrice').value = Math.round(product.purchase_price || 0);
         document.getElementById('productBarcode').value = product.barcode || '';
         document.getElementById('productQuantity').value = product.quantity;
@@ -945,13 +973,23 @@ async function loadProductForEdit(productId) {
         document.getElementById('productNotes').value = product.notes || '';
         populateProductConditionSelect(product.condition || '');
         
+        // Load and display existing product image
+        if (product.image_path) {
+            const preview = document.getElementById('productImagePreview');
+            const previewImg = document.getElementById('productImagePreviewImg');
+            if (preview && previewImg) {
+                previewImg.src = '/' + product.image_path;
+                preview.style.display = 'block';
+            }
+        }
+
         // Charger les variantes vendues pour les protéger
         const soldVariants = await loadSoldVariants(productId);
         const soldVariantIds = new Set(soldVariants.map(v => v.variant_id));
-        
+
         // Appliquer la logique de visibilité selon la catégorie d'abord
         onCategoryChange();
-        
+
         // Puis charger les variantes avec protection (après que les attributs de catégorie soient chargés)
         loadVariants(product.variants || [], soldVariantIds);
 
@@ -1295,12 +1333,19 @@ async function saveProduct() {
         }
         const variants = requiresVariants ? serializeVariants() : [];
         
+        // Gestion du prix en gros : null si vide, sinon la valeur
+        const wholesalePriceValue = document.getElementById('productWholesalePrice').value;
+        const wholesalePrice = wholesalePriceValue && wholesalePriceValue.trim() !== ''
+            ? parseInt(wholesalePriceValue, 10)
+            : null;
+
         const productData = {
             name: document.getElementById('productName').value.trim(),
             category: document.getElementById('productCategory').value || null,
             brand: document.getElementById('productBrand').value.trim() || null,
             model: document.getElementById('productModel').value.trim() || null,
             price: parseInt(document.getElementById('productPrice').value, 10) || 0,
+            wholesale_price: wholesalePrice,
             purchase_price: parseInt(document.getElementById('productPurchasePrice').value, 10) || 0,
             barcode: document.getElementById('productBarcode').value.trim() || null,
             quantity: parseInt(document.getElementById('productQuantity').value) || 0,
@@ -1333,12 +1378,27 @@ async function saveProduct() {
                 data: productData
             });
         }
-        
+
+        // Upload image if a file is selected
+        const imageFile = document.getElementById('productImageFile').files[0];
+        if (imageFile) {
+            try {
+                const savedProductId = productId || (response.data?.product_id || response.data?.id);
+                if (savedProductId) {
+                    await uploadProductImage(savedProductId, imageFile);
+                    console.log('✅ Image uploaded successfully for product', savedProductId);
+                }
+            } catch (imageError) {
+                console.error('Erreur lors de l\'upload de l\'image:', imageError);
+                showAlert('Produit sauvegardé mais erreur lors de l\'upload de l\'image', 'warning');
+            }
+        }
+
         showAlert(
             productId ? 'Produit modifié avec succès' : 'Produit créé avec succès',
             'success'
         );
-        
+
         // Fermer le modal et recharger la liste
         const modal = bootstrap.Modal.getInstance(document.getElementById('productModal'));
         modal.hide();
@@ -1363,6 +1423,12 @@ async function viewProduct(productId) {
         
         let html = `
             <div class="row">
+                ${product.image_path ? `
+                <div class="col-12 mb-3 text-center">
+                    <img src="/${product.image_path}" alt="${product.name}"
+                         style="max-width: 300px; max-height: 300px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                </div>
+                ` : ''}
                 <div class="col-md-6">
                     <h6>Informations générales</h6>
                     <table class="table table-sm">
@@ -1370,7 +1436,8 @@ async function viewProduct(productId) {
                         <tr><td><strong>Catégorie:</strong></td><td>${product.category || '-'}</td></tr>
                         <tr><td><strong>Marque:</strong></td><td>${product.brand || '-'}</td></tr>
                         <tr><td><strong>Modèle:</strong></td><td>${product.model || '-'}</td></tr>
-                        <tr><td><strong>Prix:</strong></td><td>${formatCurrency(product.price)}</td></tr>
+                        <tr><td><strong>Prix unitaire:</strong></td><td>${formatCurrency(product.price)}</td></tr>
+                        <tr><td><strong>Prix en gros:</strong></td><td>${product.wholesale_price ? formatCurrency(product.wholesale_price) : '-'}</td></tr>
                         <tr><td><strong>Prix d'achat:</strong></td><td>${formatCurrency(product.purchase_price)}</td></tr>
                         <tr><td><strong>État:</strong></td><td>${product.condition || '-'}</td></tr>
                         <tr><td><strong>Stock:</strong></td><td>${product.quantity} unités</td></tr>
@@ -1822,4 +1889,73 @@ function prefillVariantCategoryAttributes(index, variantAttributes = []) {
                 break;
         }
     });
+}
+
+// ==== GESTION DES IMAGES PRODUITS ====
+
+// Prévisualiser l'image sélectionnée
+function previewProductImage(input) {
+    const preview = document.getElementById('productImagePreview');
+    const previewImg = document.getElementById('productImagePreviewImg');
+
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            previewImg.src = e.target.result;
+            preview.style.display = 'block';
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+
+// Uploader l'image du produit
+async function uploadProductImage(productId, file) {
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await axios.post(
+            `/api/products/id/${productId}/upload-image`,
+            formData,
+            {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            }
+        );
+
+        return response.data;
+    } catch (error) {
+        console.error('Erreur lors de l\'upload de l\'image:', error);
+        throw error;
+    }
+}
+
+// Supprimer l'image d'un produit
+async function deleteProductImage() {
+    const productId = document.getElementById('productId').value;
+    if (!productId) {
+        showAlert('Impossible de supprimer l\'image: produit non identifié', 'danger');
+        return;
+    }
+
+    if (!confirm('Êtes-vous sûr de vouloir supprimer l\'image de ce produit ?')) {
+        return;
+    }
+
+    try {
+        await apiRequest(`/api/products/id/${productId}/delete-image`, {
+            method: 'DELETE'
+        });
+
+        // Réinitialiser l'affichage
+        document.getElementById('productImagePreview').style.display = 'none';
+        document.getElementById('productImagePreviewImg').src = '';
+        document.getElementById('productImageFile').value = '';
+
+        showAlert('Image supprimée avec succès', 'success');
+    } catch (error) {
+        console.error('Erreur lors de la suppression de l\'image:', error);
+        showAlert('Erreur lors de la suppression de l\'image', 'danger');
+    }
 }

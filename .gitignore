@@ -151,3 +151,9 @@ test_*.py
 # Application specific
 uploads/
 static/uploads/
+
+# Google Sheets Credentials (IMPORTANT: Never commit these!)
+credentials/
+*-credentials.json
+*service-account*.json
+google-sheets-*.json

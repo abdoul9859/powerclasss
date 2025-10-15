@@ -181,12 +181,13 @@ class CategoryAttributeValue(Base):
 
 class Product(Base):
     __tablename__ = "products"
-    
+
     product_id = Column(Integer, primary_key=True, index=True)
     name = Column(String(500), nullable=False)  # Augmenté selon les mémoires
     description = Column(Text)
     quantity = Column(Integer, nullable=False, default=0)
-    price = Column(Numeric(10, 2), nullable=False)  # Prix de vente
+    price = Column(Numeric(10, 2), nullable=False)  # Prix de vente unitaire
+    wholesale_price = Column(Numeric(10, 2), nullable=True)  # Prix de vente en gros
     purchase_price = Column(Numeric(10, 2), default=0.00)
     category = Column(String(50), index=True)
     brand = Column(String(100))
@@ -196,8 +197,9 @@ class Product(Base):
     has_unique_serial = Column(Boolean, default=False)
     entry_date = Column(DateTime)
     notes = Column(Text)
+    image_path = Column(String(500), nullable=True)  # Chemin vers l'image du produit
     created_at = Column(DateTime, default=func.now())
-    
+
     # Relations
     serial_numbers = relationship("ProductSerialNumber", back_populates="product", cascade="all, delete-orphan")
     stock_movements = relationship("StockMovement", back_populates="product")

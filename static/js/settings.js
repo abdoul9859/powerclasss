@@ -1,5 +1,6 @@
 // Gestion des paramètres de l'application
 let users = [];
+let editingUserId = null;
 let categories = [];
 let selectedCategoryId = null;
 let selectedCategoryName = '';
@@ -45,20 +46,7 @@ if (typeof window !== 'undefined') {
 }
     };
 
-    if (!ready()) {
-        // Retenter brièvement après la vérification silencieuse d'auth.js
-        setTimeout(() => {
-            if (!ready()) {
-                // console.log('Settings - Auth non prête après timeout, tentative d\'initialisation quand même...');
-                // Essayer d'initialiser quand même pour les gestionnaires d'événements
-                setupTabEventHandlers();
-                return;
-            }
-            init();
-        }, 300);
-        return;
-    }
-
+    // Initialiser immédiatement sans délai pour un chargement instantané
     init();
 });
 
@@ -153,18 +141,20 @@ async function loadSettings() {
         } catch (e) {
             // silencieux
         }
-        
-        // Desktop background preview from settings
+
+        // Favicon preview from settings
         try {
-            const bgUrl = (settings?.theme?.desktopBackground) || (settings?.desktop_bg) || null;
-            const urlInput = document.getElementById('desktopBgUrl');
-            const preview = document.getElementById('desktopBgPreview');
-            if (urlInput) urlInput.value = bgUrl || '';
+            const faviconUrl = settings?.general?.faviconUrl || settings?.favicon || null;
+            const urlInput = document.getElementById('faviconUrl');
+            const preview = document.getElementById('faviconPreview');
+            if (urlInput) urlInput.value = faviconUrl || '';
             if (preview) {
-                if (bgUrl) {
-                    preview.src = bgUrl; preview.style.display = '';
+                if (faviconUrl) {
+                    preview.src = faviconUrl;
+                    preview.style.display = '';
                 } else {
-                    preview.removeAttribute('src'); preview.style.display = 'none';
+                    preview.removeAttribute('src');
+                    preview.style.display = 'none';
                 }
             }
         } catch(e) { /* ignore */ }
@@ -548,7 +538,16 @@ function getRoleLabel(role) {
 
 // Ouvrir le modal utilisateur
 function openUserModal() {
-    document.getElementById('userForm').reset();
+    const form = document.getElementById('userForm');
+    if (form) form.reset();
+    editingUserId = null;
+    // Adapter l'UI du modal pour création
+    const title = document.querySelector('#userModal .modal-title');
+    if (title) title.innerHTML = '<i class="bi bi-person-plus me-2"></i>Nouvel Utilisateur';
+    const btn = document.querySelector('#userModal .btn.btn-primary');
+    if (btn) { btn.innerHTML = '<i class="bi bi-check-circle me-2"></i>Créer'; }
+    const pwd = document.getElementById('userPassword');
+    if (pwd) { pwd.required = true; pwd.value = ''; }
     const modal = new bootstrap.Modal(document.getElementById('userModal'));
     modal.show();
 }
@@ -556,84 +555,99 @@ function openUserModal() {
 // Sauvegarder un utilisateur
 async function saveUser() {
     try {
-        const userData = {
-            username: document.getElementById('userName').value.trim(),
-            email: document.getElementById('userEmail').value.trim() || null,
-            password: document.getElementById('userPassword').value,
-            role: document.getElementById('userRole').value
-        };
+        const username = document.getElementById('userName').value.trim();
+        const email = (document.getElementById('userEmail').value || '').trim() || null;
+        const password = document.getElementById('userPassword').value;
+        const role = document.getElementById('userRole').value;
 
-        if (!userData.username || !userData.password || !userData.role) {
+        if (!username || !role) {
             showError('Tous les champs obligatoires doivent être remplis');
             return;
         }
 
-        const response = await fetch('/api/auth/register', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            credentials: 'include',
-            body: JSON.stringify(userData)
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || 'Erreur lors de la création de l\'utilisateur');
+        if (editingUserId == null) {
+            // Création
+            if (!password) {
+                showError('Le mot de passe est obligatoire pour la création');
+                return;
+            }
+            const payload = { username, email, password, role };
+            const resp = await axios.post('/api/auth/register', payload, { withCredentials: true });
+            if (!(resp && resp.status >= 200 && resp.status < 300)) throw new Error('Erreur création utilisateur');
+            showSuccess('Utilisateur créé avec succès');
+        } else {
+            // Édition (partielle)
+            const payload = { username, email, role };
+            if (password) payload.password = password;
+            const resp = await axios.put(`/api/auth/users/${editingUserId}`, payload, { withCredentials: true });
+            if (!(resp && resp.status >= 200 && resp.status < 300)) throw new Error('Erreur mise à jour utilisateur');
+            showSuccess('Utilisateur mis à jour');
         }
 
-        // Fermer le modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('userModal'));
-        modal.hide();
-
-        // Recharger la liste
+        if (modal) modal.hide();
         await loadUsers();
-        
-        showSuccess('Utilisateur créé avec succès');
-        
     } catch (error) {
-        console.error('Erreur lors de la création:', error);
-        showError(error.message || 'Erreur lors de la création de l\'utilisateur');
+        console.error('Erreur lors de la sauvegarde utilisateur:', error);
+        const msg = error?.response?.data?.detail || error.message || 'Erreur lors de la sauvegarde';
+        showError(msg);
     }
 }
 
 // Modifier un utilisateur
 async function editUser(userId) {
-    showInfo('Fonctionnalité de modification en cours de développement');
+    try {
+        const u = users.find(u => String(u.user_id) === String(userId));
+        if (!u) { showError('Utilisateur introuvable'); return; }
+        editingUserId = u.user_id;
+        // Pré-remplir le formulaire
+        const userName = document.getElementById('userName');
+        const userEmail = document.getElementById('userEmail');
+        const userPassword = document.getElementById('userPassword');
+        const userRole = document.getElementById('userRole');
+        if (userName) userName.value = u.username || '';
+        if (userEmail) userEmail.value = u.email || '';
+        if (userRole) userRole.value = u.role || '';
+        if (userPassword) { userPassword.value = ''; userPassword.required = false; }
+
+        // Adapter l'UI du modal pour édition
+        const title = document.querySelector('#userModal .modal-title');
+        if (title) title.innerHTML = '<i class="bi bi-pencil me-2"></i>Modifier l\'utilisateur';
+        const btn = document.querySelector('#userModal .btn.btn-primary');
+        if (btn) { btn.innerHTML = '<i class="bi bi-check-circle me-2"></i>Enregistrer'; }
+
+        const modal = new bootstrap.Modal(document.getElementById('userModal'));
+        modal.show();
+    } catch (e) {
+        showError('Impossible d\'ouvrir le formulaire d\'édition');
+    }
 }
 
 // Activer/désactiver un utilisateur
 async function toggleUserStatus(userId) {
     try {
-        const user = users.find(u => u.user_id === userId);
-        if (!user) return;
-
-        // Simuler le changement de statut (à remplacer par API)
-        user.is_active = !user.is_active;
-        displayUsers();
-        
-        showSuccess(`Utilisateur ${user.is_active ? 'activé' : 'désactivé'} avec succès`);
+        const u = users.find(x => String(x.user_id) === String(userId));
+        if (!u) return;
+        const target = !u.is_active;
+        await axios.put(`/api/auth/users/${userId}/status`, { is_active: target }, { withCredentials: true });
+        await loadUsers();
+        showSuccess(`Utilisateur ${target ? 'activé' : 'désactivé'} avec succès`);
     } catch (error) {
         console.error('Erreur lors du changement de statut:', error);
-        showError('Erreur lors du changement de statut de l\'utilisateur');
+        showError(error?.response?.data?.detail || 'Erreur lors du changement de statut de l\'utilisateur');
     }
 }
 
 // Supprimer un utilisateur
 async function deleteUser(userId) {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) {
-        return;
-    }
-
+    if (!confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) return;
     try {
-        // Simuler la suppression (à remplacer par API)
-        users = users.filter(u => u.user_id !== userId);
-        displayUsers();
-        
+        await axios.delete(`/api/auth/users/${userId}`, { withCredentials: true });
+        await loadUsers();
         showSuccess('Utilisateur supprimé avec succès');
     } catch (error) {
         console.error('Erreur lors de la suppression:', error);
-        showError('Erreur lors de la suppression de l\'utilisateur');
+        showError(error?.response?.data?.detail || 'Erreur lors de la suppression de l\'utilisateur');
     }
 }
 
@@ -1200,18 +1214,26 @@ async function deleteAttributeValue(attributeId, valueId) {
     }
 }
 
-// ===== Fond d'écran (upload / reset) =====
-async function uploadDesktopBackground() {
-    const fileInput = document.getElementById('desktopBgFile');
+// ===== Favicon (upload / reset) =====
+async function uploadFavicon() {
+    const fileInput = document.getElementById('faviconFile');
     if (!fileInput || !fileInput.files || !fileInput.files.length) {
         showError("Veuillez sélectionner une image à uploader");
         return;
     }
     const file = fileInput.files[0];
+
+    // Validation du type de fichier
+    const validTypes = ['image/x-icon', 'image/png', 'image/svg+xml', 'image/vnd.microsoft.icon'];
+    if (!validTypes.includes(file.type)) {
+        showError("Format de fichier non valide. Utilisez ICO, PNG ou SVG");
+        return;
+    }
+
     const fd = new FormData();
     fd.append('file', file);
     try {
-        const resp = await fetch('/api/user-settings/upload/wallpaper', {
+        const resp = await fetch('/api/user-settings/upload/favicon', {
             method: 'POST',
             body: fd,
             credentials: 'include'
@@ -1222,49 +1244,96 @@ async function uploadDesktopBackground() {
         }
         const data = await resp.json();
         const url = data.url;
-        const urlInput = document.getElementById('desktopBgUrl');
-        const preview = document.getElementById('desktopBgPreview');
+
+        // Update preview
+        const urlInput = document.getElementById('faviconUrl');
+        const preview = document.getElementById('faviconPreview');
         if (urlInput) urlInput.value = url || '';
-        if (preview && url) { preview.src = url; preview.style.display = ''; }
-        showSuccess("Fond d'écran mis à jour");
+        if (preview && url) {
+            preview.src = url;
+            preview.style.display = '';
+        }
+
+        // Update actual favicon in page
+        updatePageFavicon(url);
+
+        // Save to settings
+        await apiStorage.updateAppSetting('general', { faviconUrl: url });
+
+        showSuccess("Favicon mis à jour");
     } catch (e) {
         console.error(e);
-        showError(e.message || "Erreur lors de l'upload du fond d'écran");
+        showError(e.message || "Erreur lors de l'upload du favicon");
     }
 }
 
-async function resetDesktopBackground() {
+async function resetFavicon() {
     try {
-        const resp = await fetch('/api/user-settings/wallpaper/reset', { method: 'POST', credentials: 'include' });
+        const resp = await fetch('/api/user-settings/favicon/reset', {
+            method: 'POST',
+            credentials: 'include'
+        });
         if (!resp.ok) {
             const err = await resp.json().catch(()=>({detail:'Erreur reset'}));
             throw new Error(err.detail || 'Erreur reset');
         }
-        const urlInput = document.getElementById('desktopBgUrl');
-        const preview = document.getElementById('desktopBgPreview');
+
+        const urlInput = document.getElementById('faviconUrl');
+        const preview = document.getElementById('faviconPreview');
         if (urlInput) urlInput.value = '';
-        if (preview) { preview.removeAttribute('src'); preview.style.display = 'none'; }
-        const fileInput = document.getElementById('desktopBgFile');
+        if (preview) {
+            preview.removeAttribute('src');
+            preview.style.display = 'none';
+        }
+        const fileInput = document.getElementById('faviconFile');
         if (fileInput) fileInput.value = '';
-        showSuccess("Fond d'écran réinitialisé");
+
+        // Reset to default favicon
+        updatePageFavicon('/static/favicon.ico');
+
+        // Remove from settings
+        await apiStorage.updateAppSetting('general', { faviconUrl: null });
+
+        showSuccess("Favicon réinitialisé");
     } catch (e) {
         console.error(e);
         showError(e.message || 'Erreur lors de la réinitialisation');
     }
 }
 
-// Live preview
+// Live preview for favicon
 document.addEventListener('change', function(e){
     const t = e.target;
-    if (t && t.id === 'desktopBgFile' && t.files && t.files[0]) {
+    if (t && t.id === 'faviconFile' && t.files && t.files[0]) {
         const reader = new FileReader();
         reader.onload = () => {
-            const preview = document.getElementById('desktopBgPreview');
-            if (preview) { preview.src = String(reader.result || ''); preview.style.display = ''; }
+            const preview = document.getElementById('faviconPreview');
+            if (preview) {
+                preview.src = String(reader.result || '');
+                preview.style.display = '';
+            }
         };
         reader.readAsDataURL(t.files[0]);
     }
 });
+
+// Helper function to update favicon in the page
+function updatePageFavicon(url) {
+    // Remove existing favicon links
+    const existingFavicons = document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"]');
+    existingFavicons.forEach(link => link.remove());
+
+    // Add new favicon
+    const link = document.createElement('link');
+    link.rel = 'icon';
+    link.href = url;
+    document.head.appendChild(link);
+
+    const shortcutLink = document.createElement('link');
+    shortcutLink.rel = 'shortcut icon';
+    shortcutLink.href = url;
+    document.head.appendChild(shortcutLink);
+}
 
 // Rendre accessibles pour les gestionnaires inline dans le HTML
 // (assure la compatibilité même si le script est chargé en mode différé)
@@ -1279,5 +1348,5 @@ window.editCategory = editCategory;
 window.deleteCategory = deleteCategory;
 window.confirmDeleteCategory = confirmDeleteCategory;
 window.startCreateCategoryFromName = startCreateCategoryFromName;
-window.uploadDesktopBackground = uploadDesktopBackground;
-window.resetDesktopBackground = resetDesktopBackground;
+window.uploadFavicon = uploadFavicon;
+window.resetFavicon = resetFavicon;

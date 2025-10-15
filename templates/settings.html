@@ -127,35 +127,35 @@
                             </div>
 
                             <hr class="my-4">
-                            <h6 class="mb-3"><i class="bi bi-image me-2"></i>Image d’arrière-plan du bureau</h6>
+                            <h6 class="mb-3"><i class="bi bi-image me-2"></i>Favicon de l'onglet</h6>
                             <div class="row g-3 align-items-center">
                               <div class="col-md-6">
-                                <label class="form-label" for="desktopBgFile">Fichier image (JPG/PNG/WebP/SVG)</label>
-                                <input type="file" class="form-control" id="desktopBgFile" accept="image/*">
-                                <div class="form-text">Conseil: utilisez une image large (ex: 1920x1080). Un dégradé sombre est ajouté automatiquement pour la lisibilité.</div>
+                                <label class="form-label" for="faviconFile">Fichier image (ICO, PNG, SVG)</label>
+                                <input type="file" class="form-control" id="faviconFile" accept="image/x-icon,image/png,image/svg+xml">
+                                <div class="form-text">Taille recommandée: 32x32 ou 64x64 pixels</div>
                               </div>
                               <div class="col-md-6">
                                 <div class="card" style="max-width: 420px;">
                                   <div class="card-body">
                                     <div class="mb-2 small text-muted">Aperçu</div>
-                                    <div class="ratio ratio-16x9 mb-2" style="border-radius:8px; overflow:hidden; background:#111;">
-                                      <img id="desktopBgPreview" alt="Aperçu fond d’écran" style="object-fit: cover; width:100%; height:100%; display:none;" />
+                                    <div class="d-flex align-items-center gap-3 mb-2">
+                                      <img id="faviconPreview" alt="Aperçu favicon" style="width:32px; height:32px; display:none; border: 1px solid #ddd; border-radius: 4px;" />
+                                      <input id="faviconUrl" type="text" class="form-control form-control-sm" placeholder="URL actuelle" readonly>
                                     </div>
-                                    <input id="desktopBgUrl" type="text" class="form-control form-control-sm" placeholder="URL actuelle" readonly>
                                   </div>
                                 </div>
                               </div>
                             </div>
                             <div class="mt-3 d-flex gap-2">
-                              <button type="button" class="btn btn-outline-primary" onclick="uploadDesktopBackground()">
+                              <button type="button" class="btn btn-outline-primary" onclick="uploadFavicon()">
                                 <i class="bi bi-cloud-upload me-2"></i>Uploader
                               </button>
-                              <button type="button" class="btn btn-outline-secondary" onclick="resetDesktopBackground()">
+                              <button type="button" class="btn btn-outline-secondary" onclick="resetFavicon()">
                                 <i class="bi bi-arrow-counterclockwise me-2"></i>Réinitialiser
                               </button>
                             </div>
 
-                            <button type="button" class="btn btn-primary" onclick="saveGeneralSettings()">
+                            <button type="button" class="btn btn-primary mt-4" onclick="saveGeneralSettings()">
                                 <i class="bi bi-check-circle me-2"></i>Enregistrer
                             </button>
                         </form>

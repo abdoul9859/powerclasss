@@ -23,14 +23,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
 
-    if (!ready()) {
-        setTimeout(() => {
-            if (!ready()) return;
-            init();
-        }, 300);
-        return;
-    }
-
+    // Initialiser immédiatement sans délai pour un chargement instantané
     init();
 });
 

@@ -22,13 +22,7 @@ document.addEventListener('DOMContentLoaded', function() {
         setDefaultDate();
     };
 
-    if (!ready()) {
-        setTimeout(() => {
-            if (!ready()) return;
-            boot();
-        }, 300);
-        return;
-    }
+    // Initialiser immédiatement sans délai pour un chargement instantané
     boot();
 });
 

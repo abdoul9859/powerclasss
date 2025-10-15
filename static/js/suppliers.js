@@ -24,15 +24,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return hasAuthManager && (window.authManager.isAuthenticatedSync() || hasUser);
     };
 
-    if (!ready()) {
-        setTimeout(() => {
-            if (!ready()) return;
-            loadSuppliers();
-            setupEventListeners();
-        }, 300);
-        return;
-    }
-
+    // Initialiser immédiatement sans délai pour un chargement instantané
     loadSuppliers();
     setupEventListeners();
 });

@@ -9,44 +9,7 @@
     }
   })();
   
-  // Cache for backend protocol detection
-  let backendProtocol = null;
-  
-  // Function to detect backend protocol
-  async function detectBackendProtocol() {
-    if (backendProtocol !== null) return backendProtocol;
-    
-    try {
-      const loc = window.location;
-      if (loc.hostname === 'localhost' || loc.hostname === '127.0.0.1') {
-        // For localhost, assume HTTP for development
-        backendProtocol = 'http:';
-        return backendProtocol;
-      }
-      
-      // For other hosts, try HTTPS first, then fallback to HTTP
-      try {
-        const testUrl = `${loc.protocol}//${loc.hostname}:${loc.port || (loc.protocol === 'https:' ? '443' : '80')}/api`;
-        await fetch(testUrl, { method: 'HEAD', mode: 'no-cors' });
-        backendProtocol = loc.protocol;
-      } catch (e) {
-        // If HTTPS fails, try HTTP
-        const httpUrl = `http://${loc.hostname}:${loc.port || '80'}/api`;
-        try {
-          await fetch(httpUrl, { method: 'HEAD', mode: 'no-cors' });
-          backendProtocol = 'http:';
-        } catch (e2) {
-          // Fallback to current protocol
-          backendProtocol = loc.protocol;
-        }
-      }
-    } catch (e) {
-      // Fallback to current protocol
-      backendProtocol = window.location.protocol;
-    }
-    
-    return backendProtocol;
-  }
+  // No protocol detection needed - use current protocol
 
   function buildURL(url, params) {
     const hasProto = /^https?:\/\//i.test(url);
@@ -166,9 +129,4 @@
   // Expose as api and as axios shim
   window.api = request;
   window.axios = request;
-  
-  // Detect backend protocol on load
-  detectBackendProtocol().catch(() => {
-    // Ignore errors during detection
-  });
 })();

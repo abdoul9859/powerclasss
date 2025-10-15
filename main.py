@@ -31,7 +31,7 @@ try:
     from app.models.models import Settings as LegacySettings  # type: ignore
 except Exception:
     LegacySettings = None  # type: ignore
-from app.routers import auth, products, clients, stock_movements, invoices, quotations, suppliers, debts, delivery_notes, bank_transactions, reports, user_settings, migrations, cache, dashboard, supplier_invoices, daily_recap, daily_purchases, daily_requests, daily_sales
+from app.routers import auth, products, clients, stock_movements, invoices, quotations, suppliers, debts, delivery_notes, bank_transactions, reports, user_settings, migrations, cache, dashboard, supplier_invoices, daily_recap, daily_purchases, daily_requests, daily_sales, google_sheets
 from app.init_db import init_database
 from app.auth import get_current_user
 from app.services.migration_processor import migration_processor
@@ -183,6 +183,7 @@ app.include_router(daily_recap.router)
 app.include_router(daily_purchases.router)
 app.include_router(daily_requests.router)
 app.include_router(daily_sales.router)
+app.include_router(google_sheets.router)
 
 # Route pour le favicon
 @app.get("/favicon.ico")
@@ -200,18 +201,19 @@ async def api_status():
     }
 
 # Routes pour l'interface web
-# Nouvelle page d'accueil: Desktop (Launchpad + fenêtres)
+# Page d'accueil: Dashboard classique avec barre de navigation
 @app.get("/", response_class=HTMLResponse)
-async def desktop_home(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse("desktop.html", {"request": request, "global_settings": _load_company_settings(db)})
+async def dashboard_home(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse("dashboard.html", {"request": request, "global_settings": _load_company_settings(db)})
 
+# Interface Desktop accessible via /desktop (interface avec fenêtres type macOS)
 @app.get("/desktop", response_class=HTMLResponse)
-async def desktop_alias(request: Request, db: Session = Depends(get_db)):
+async def desktop_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("desktop.html", {"request": request, "global_settings": _load_company_settings(db)})
 
-# Ancien dashboard accessible via /dashboard (utilisé par l'app Desktop)
+# Alias /dashboard pour compatibilité
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_legacy(request: Request, db: Session = Depends(get_db)):
+async def dashboard_alias(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("dashboard.html", {"request": request, "global_settings": _load_company_settings(db)})
 
 @app.get("/login", response_class=HTMLResponse)
@@ -329,60 +331,88 @@ async def daily_sales_page(request: Request, db: Session = Depends(get_db)):
     """Page des ventes quotidiennes"""
     return templates.TemplateResponse("daily_sales.html", {"request": request, "global_settings": _load_company_settings(db)})
 
+@app.get("/google-sheets-sync", response_class=HTMLResponse)
+async def google_sheets_sync_page(request: Request, db: Session = Depends(get_db)):
+    """Page de synchronisation Google Sheets"""
+    return templates.TemplateResponse("google_sheets_sync.html", {"request": request, "global_settings": _load_company_settings(db)})
+
 # ===================== PRINT ROUTES (Invoice, Delivery Note) =====================
 
 def _load_company_settings(db: Session) -> dict:
+    result = {}
+
+    # Load company settings from INVOICE_COMPANY
     try:
         s = db.query(UserSettings).filter(UserSettings.setting_key == "INVOICE_COMPANY").order_by(UserSettings.updated_at.desc()).first()
         if s and s.setting_value:
-            return json.loads(s.setting_value)
+            result = json.loads(s.setting_value)
     except Exception:
         pass
-    # Fallback 2: read from consolidated appSettings.company if present
+
+    # Fallback: read from consolidated appSettings.company if present
+    if not result:
+        try:
+            legacy_us = (
+                db.query(UserSettings)
+                .filter(UserSettings.setting_key == "appSettings")
+                .order_by(UserSettings.updated_at.desc())
+                .first()
+            )
+            if legacy_us and legacy_us.setting_value:
+                data = json.loads(legacy_us.setting_value)
+                comp = (data or {}).get("company") or {}
+                if comp:
+                    result = {
+                        "name": comp.get("companyName") or comp.get("name"),
+                        "address": comp.get("companyAddress") or comp.get("address"),
+                        "email": comp.get("companyEmail") or comp.get("email"),
+                        "phone": comp.get("companyPhone") or comp.get("phone"),
+                        "website": comp.get("companyWebsite") or comp.get("website"),
+                        "logo": comp.get("logo"),  # DataURL support
+                    }
+        except Exception:
+            pass
+
+    # Load favicon from appSettings.general.faviconUrl
     try:
-        legacy_us = (
+        app_settings_record = (
             db.query(UserSettings)
             .filter(UserSettings.setting_key == "appSettings")
             .order_by(UserSettings.updated_at.desc())
             .first()
         )
-        if legacy_us and legacy_us.setting_value:
-            data = json.loads(legacy_us.setting_value)
-            comp = (data or {}).get("company") or {}
-            if comp:
-                return {
-                    "name": comp.get("companyName") or comp.get("name"),
-                    "address": comp.get("companyAddress") or comp.get("address"),
-                    "email": comp.get("companyEmail") or comp.get("email"),
-                    "phone": comp.get("companyPhone") or comp.get("phone"),
-                    "website": comp.get("companyWebsite") or comp.get("website"),
-                    "logo": comp.get("logo"),  # DataURL support
-                }
+        if app_settings_record and app_settings_record.setting_value:
+            app_data = json.loads(app_settings_record.setting_value)
+            general = (app_data or {}).get("general") or {}
+            favicon_url = general.get("faviconUrl")
+            if favicon_url:
+                result["favicon"] = favicon_url
     except Exception:
         pass
-    # Fallback: pull from legacy Settings table if available
-    try:
-        if LegacySettings is not None:
-            legacy = db.query(LegacySettings).first()
-            if legacy:
-                return {
-                    "name": getattr(legacy, "company_name", None),
-                    "address": getattr(legacy, "address", None),
-                    "city": getattr(legacy, "city", None),
-                    "email": getattr(legacy, "email", None),
-                    "phone": getattr(legacy, "phone", None),
-                    "phone2": getattr(legacy, "phone2", None),
-                    "whatsapp": getattr(legacy, "whatsapp", None),
-                    "instagram": getattr(legacy, "instagram", None),
-                    "website": getattr(legacy, "website", None),
-                    # Prefer unified key 'logo' for templates; keep 'logo_path' for compatibility
-                    "logo": getattr(legacy, "logo_path", None),
-                    "logo_path": getattr(legacy, "logo_path", None),
-                    "footer_text": getattr(legacy, "footer_text", None),
-                }
-    except Exception:
-        pass
-    return {}
+    # Fallback: pull from legacy Settings table if available (only if result is still empty)
+    if not result:
+        try:
+            if LegacySettings is not None:
+                legacy = db.query(LegacySettings).first()
+                if legacy:
+                    result = {
+                        "name": getattr(legacy, "company_name", None),
+                        "address": getattr(legacy, "address", None),
+                        "city": getattr(legacy, "city", None),
+                        "email": getattr(legacy, "email", None),
+                        "phone": getattr(legacy, "phone", None),
+                        "phone2": getattr(legacy, "phone2", None),
+                        "whatsapp": getattr(legacy, "whatsapp", None),
+                        "instagram": getattr(legacy, "instagram", None),
+                        "website": getattr(legacy, "website", None),
+                        # Prefer unified key 'logo' for templates; keep 'logo_path' for compatibility
+                        "logo": getattr(legacy, "logo_path", None),
+                        "logo_path": getattr(legacy, "logo_path", None),
+                        "footer_text": getattr(legacy, "footer_text", None),
+                    }
+        except Exception:
+            pass
+    return result
 
 
 @app.get("/invoices/print/{invoice_id}", response_class=HTMLResponse)
