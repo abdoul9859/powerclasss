@@ -528,3 +528,102 @@ async def reset_wallpaper(
         db.delete(legacy)
         db.commit()
     return {"message": "Fond d'écran réinitialisé"}
+
+# ==================== FAVICON UPLOAD ====================
+
+@router.post("/upload/favicon")
+async def upload_favicon(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Upload a favicon image and return its public URL.
+    Accepted types: image/x-icon, image/vnd.microsoft.icon, image/png, image/svg+xml
+    """
+    import os, re, time
+    from pathlib import Path
+
+    allowed = {"image/x-icon", "image/vnd.microsoft.icon", "image/png", "image/svg+xml"}
+    if (file.content_type or "").lower() not in allowed:
+        raise HTTPException(status_code=400, detail="Type de fichier non supporté. Utilisez ICO, PNG ou SVG")
+
+    uploads_dir = Path("static/uploads/favicons")
+    try:
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    # Sanitize filename
+    original = file.filename or "favicon"
+    safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", original)
+    ts = int(time.time())
+    # keep extension if present
+    if "." in safe:
+        name, ext = safe.rsplit(".", 1)
+        out_name = f"favicon_{current_user.user_id}_{ts}.{ext}"
+    else:
+        out_name = f"favicon_{current_user.user_id}_{ts}"
+
+    out_path = uploads_dir / out_name
+    try:
+        with out_path.open("wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'envoi: {e}")
+
+    public_url = f"/static/uploads/favicons/{out_name}"
+
+    # Persist as the current user's app setting (general.faviconUrl)
+    try:
+        # Load existing appSettings
+        setting = db.query(UserSettings).filter(
+            and_(UserSettings.user_id == current_user.user_id, UserSettings.setting_key == 'appSettings')
+        ).first()
+        payload = {}
+        if setting and setting.setting_value:
+            try:
+                payload = json.loads(setting.setting_value) or {}
+            except Exception:
+                payload = {}
+        general = payload.get('general') or {}
+        general['faviconUrl'] = public_url
+        payload['general'] = general
+        serialized = json.dumps(payload, ensure_ascii=False)
+        if setting:
+            setting.setting_value = serialized
+            setting.updated_at = datetime.now()
+        else:
+            setting = UserSettings(user_id=current_user.user_id, setting_key='appSettings', setting_value=serialized)
+            db.add(setting)
+        db.commit()
+    except Exception:
+        # Non bloquant: on retourne quand même l'URL
+        db.rollback()
+
+    return {"url": public_url}
+
+@router.post("/favicon/reset")
+async def reset_favicon(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Reset the favicon setting for the current user."""
+    # Clear from appSettings.general.faviconUrl
+    setting = db.query(UserSettings).filter(
+        and_(UserSettings.user_id == current_user.user_id, UserSettings.setting_key == 'appSettings')
+    ).first()
+    if setting and setting.setting_value:
+        try:
+            payload = json.loads(setting.setting_value) or {}
+            if isinstance(payload.get('general'), dict) and 'faviconUrl' in payload['general']:
+                payload['general'].pop('faviconUrl', None)
+                setting.setting_value = json.dumps(payload, ensure_ascii=False)
+                setting.updated_at = datetime.now()
+                db.commit()
+        except Exception:
+            db.rollback()
+    return {"message": "Favicon réinitialisé"}

@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime
 from ..database import get_db, User
-from ..schemas import UserLogin, Token, UserResponse, UserCreate
+from ..schemas import UserLogin, Token, UserResponse, UserCreate, UserUpdate
 from ..auth import (
     verify_password,
     get_password_hash,
@@ -175,7 +175,7 @@ async def get_users(
 @router.put("/users/{user_id}", response_model=UserResponse)
 async def update_user(
     user_id: int,
-    user_data: UserCreate,
+    user_data: UserUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -185,49 +185,29 @@ async def update_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Accès refusé. Droits administrateur requis."
         )
-    
-    # Vérifier si l'utilisateur existe
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Utilisateur non trouvé"
-        )
-    
-    # Vérifier l'unicité du nom d'utilisateur et email (sauf pour l'utilisateur actuel)
-    existing_user = db.query(User).filter(
-        User.username == user_data.username,
-        User.id != user_id
-    ).first()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Utilisateur non trouvé")
+    username = user_data.username if user_data.username is not None else user.username
+    email = user_data.email if user_data.email is not None else user.email
+    existing_user = db.query(User).filter(User.username == username, User.user_id != user_id).first()
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ce nom d'utilisateur existe déjà"
-        )
-    
-    existing_email = db.query(User).filter(
-        User.email == user_data.email,
-        User.id != user_id
-    ).first()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ce nom d'utilisateur existe déjà")
+    existing_email = db.query(User).filter(User.email == email, User.user_id != user_id).first()
     if existing_email:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cette adresse email existe déjà"
-        )
-    
-    # Mettre à jour les données
-    user.username = user_data.username
-    user.email = user_data.email
-    user.full_name = user_data.full_name
-    user.role = user_data.role
-    
-    # Mettre à jour le mot de passe si fourni
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cette adresse email existe déjà")
+    if user_data.username is not None:
+        user.username = user_data.username
+    if user_data.email is not None:
+        user.email = user_data.email
+    if user_data.full_name is not None:
+        user.full_name = user_data.full_name
+    if user_data.role is not None:
+        user.role = user_data.role
     if user_data.password:
         user.password_hash = get_password_hash(user_data.password)
-    
     db.commit()
     db.refresh(user)
-    
     return UserResponse.from_orm(user)
 
 @router.delete("/users/{user_id}")
@@ -242,23 +222,30 @@ async def delete_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Accès refusé. Droits administrateur requis."
         )
-    
-    # Empêcher la suppression de son propre compte
-    if current_user.id == user_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Vous ne pouvez pas supprimer votre propre compte"
-        )
-    
-    # Vérifier si l'utilisateur existe
-    user = db.query(User).filter(User.id == user_id).first()
+    if getattr(current_user, "user_id", None) == user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Vous ne pouvez pas supprimer votre propre compte")
+    user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Utilisateur non trouvé"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Utilisateur non trouvé")
     db.delete(user)
     db.commit()
-    
     return {"message": "Utilisateur supprimé avec succès"}
+
+@router.put("/users/{user_id}/status", response_model=UserResponse)
+async def update_user_status(
+    user_id: int,
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accès refusé. Droits administrateur requis.")
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Utilisateur non trouvé")
+    is_active = payload.get("is_active")
+    if isinstance(is_active, bool):
+        user.is_active = is_active
+        db.commit()
+        db.refresh(user)
+    return UserResponse.from_orm(user)

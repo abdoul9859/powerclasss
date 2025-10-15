@@ -6,6 +6,7 @@ from datetime import datetime, date, timedelta, time
 from ..database import get_db, StockMovement, Product, ProductVariant
 from ..schemas import StockMovementCreate, StockMovementResponse
 from ..auth import get_current_user
+from ..services.google_sheets_sync_helper import sync_product_stock_to_sheets
 import logging
 
 router = APIRouter(prefix="/api/stock-movements", tags=["stock-movements"])
@@ -120,8 +121,16 @@ async def create_stock_movement(
         
         db.commit()
         db.refresh(db_movement)
+
+        # Synchroniser le stock avec Google Sheets (si activé)
+        try:
+            sync_product_stock_to_sheets(db, movement_data.product_id)
+        except Exception as e:
+            logging.warning(f"Échec de synchronisation Google Sheets pour le produit {movement_data.product_id}: {e}")
+            pass
+
         return db_movement
-        
+
     except HTTPException:
         raise
     except Exception as e:

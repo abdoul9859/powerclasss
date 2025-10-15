@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const boot = () => {
         loadQuotations();
-        setTimeout(() => { try { loadStats(); } catch(e){} }, 200);
+        try { loadStats(); } catch(e){}
         // Lazy load clients/products on demand only
         setupEventListeners();
         setDefaultDates();
@@ -134,13 +134,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (e) {}
     };
 
-    if (!ready()) {
-        setTimeout(() => {
-            if (!ready()) return;
-            boot();
-        }, 300);
-        return;
-    }
+    // Initialiser immédiatement sans délai pour un chargement instantané
     boot();
 });
 
@@ -195,9 +189,15 @@ function setupEventListeners() {
                 const isOutOfStock = available === 0;
                 return `
                 <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center ${isOutOfStock ? 'text-muted' : ''}" data-product-id="${p.product_id}">
-                    <div>
-                        <div class="fw-semibold d-flex align-items-center">${escapeHtml(p.name)} ${stockBadge}</div>
-                        <div class="text-muted small">${p.barcode ? 'Code: '+escapeHtml(p.barcode) : ''}</div>
+                    <div class="d-flex align-items-center gap-2">
+                        ${p.image_path ? `
+                            <img src="/${p.image_path}" alt="${escapeHtml(p.name)}"
+                                 style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;">
+                        ` : ''}
+                        <div>
+                            <div class="fw-semibold d-flex align-items-center">${escapeHtml(p.name)} ${stockBadge}</div>
+                            <div class="text-muted small">${p.barcode ? 'Code: '+escapeHtml(p.barcode) : ''}</div>
+                        </div>
                     </div>
                     <div class="text-nowrap ms-3">${formatCurrency(p.price)}</div>
                 </div>`;
@@ -851,7 +851,7 @@ function updateQuotationItemsDisplay() {
     if (quotationItems.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="5" class="text-center text-muted py-3">
+                <td colspan="6" class="text-center text-muted py-3">
                     <i class="bi bi-inbox me-2"></i>Aucun article ajouté
                 </td>
             </tr>
@@ -876,7 +876,7 @@ function updateQuotationItemsDisplay() {
                             const stock = productIdToStock.get(product.product_id) ?? 0;
                             return `
                             <option value="${product.product_id}" ${product.product_id == item.product_id ? 'selected' : ''} ${disabled ? 'disabled' : ''}>
-                                ${escapeHtml(product.name)} - ${formatCurrency(product.price)} ${disabled ? '(épuisé)' : `(stock: ${stock})`}
+                                ${escapeHtml(product.name)} - ${formatCurrency(product.price)}${product.wholesale_price ? ` / Gros: ${formatCurrency(product.wholesale_price)}` : ''} ${disabled ? '(épuisé)' : `(stock: ${stock})`}
                             </option>`;
                         }).join('')}
                 </select>
@@ -885,8 +885,20 @@ function updateQuotationItemsDisplay() {
                 <div class="quotation-suggestions d-none" style="position:absolute; z-index:1050; max-height:240px; overflow:auto; width:28rem; box-shadow:0 2px 6px rgba(0,0,0,.15);"></div>`}
             </td>
             <td>
-                <input type="number" class="form-control form-control-sm" value="${item.quantity}" min="1" 
+                <input type="number" class="form-control form-control-sm" value="${item.quantity}" min="1"
                        onchange="updateItemQuantity(${item.id}, this.value)">
+            </td>
+            <td>
+                ${!item.is_custom && item.product_id ? (() => {
+                    const product = products.find(p => p.product_id == item.product_id);
+                    const hasWholesale = product && product.wholesale_price;
+                    return hasWholesale ? `
+                        <select class="form-select form-select-sm" onchange="togglePriceType(${item.id}, this.value === 'wholesale')">
+                            <option value="unit" ${item.price_type !== 'wholesale' ? 'selected' : ''}>Unitaire</option>
+                            <option value="wholesale" ${item.price_type === 'wholesale' ? 'selected' : ''}>Gros</option>
+                        </select>
+                    ` : '<small class="text-muted">-</small>';
+                })() : '<small class="text-muted">-</small>'}
             </td>
             <td>
                 <input type="number" class="form-control form-control-sm" value="${item.unit_price}" step="0.01" min="0"
@@ -907,24 +919,32 @@ function updateCustomName(itemId, name) {
     if (!item) return; item.product_name = name || '';
 }
 
-function selectProduct(itemId, productId) {
+function selectProduct(itemId, productId, useBulkPrice = false) {
     const item = quotationItems.find(i => i.id === itemId);
     const product = products.find(p => p.product_id == productId);
-    
+
     if (item && product) {
         item.product_id = product.product_id;
         item.product_name = product.name;
-        item.unit_price = product.price;
+        // Choisir le prix: en gros si disponible et demandé, sinon unitaire
+        item.unit_price = (useBulkPrice && product.wholesale_price) ? product.wholesale_price : product.price;
+        item.price_type = (useBulkPrice && product.wholesale_price) ? 'wholesale' : 'unit';
         // Si le produit a des variantes, la quantité suit le nombre d'IMEI sélectionnés (ici, 1 par défaut à la création du devis)
         const hasVariants = (productVariantsByProductId.get(Number(product.product_id)) || []).length > 0;
         if (hasVariants) {
             item.quantity = 1;
         }
         item.total = item.quantity * item.unit_price;
-        
+
         updateQuotationItemsDisplay();
         calculateTotals();
     }
+}
+
+function togglePriceType(itemId, useBulkPrice) {
+    const item = quotationItems.find(i => i.id === itemId);
+    if (!item || !item.product_id) return;
+    selectProduct(itemId, item.product_id, useBulkPrice);
 }
 
 function updateItemQuantity(itemId, quantity) {
@@ -932,7 +952,7 @@ function updateItemQuantity(itemId, quantity) {
     if (item) {
         item.quantity = parseInt(quantity) || 1;
         item.total = item.quantity * item.unit_price;
-        
+
         updateQuotationItemsDisplay();
         calculateTotals();
     }

@@ -7,7 +7,7 @@
     {% set _comp = _gs.company if _gs.company is defined else {} %}
     {% set _app_name = _gs.name or _gs.company_name or (_comp.companyName if _comp is defined else None) or (_comp.name if _comp is defined else None) or 'GEEK TECHNOLOGIE' %}
     <title>{% block title %}{{ _app_name }}{% endblock %}</title>
-    {% set _favicon = (_gs.logo or _gs.logo_path) if _gs is defined else None %}
+    {% set _favicon = (_gs.favicon or _gs.logo or _gs.logo_path) if _gs is defined else None %}
     {% if _favicon %}
     <link rel="icon" href="{{ _favicon }}">
     <link rel="shortcut icon" href="{{ _favicon }}">
@@ -16,6 +16,11 @@
     <link rel="shortcut icon" href="/static/favicon.ico?v={{ ASSET_VERSION }}">
     {% endif %}
     
+    <!-- Google Fonts - Anybody -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Anybody:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons (primary CDN) -->
@@ -72,16 +77,15 @@
 </head>
 <body id="app-body">
     <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+    <nav class="navbar navbar-expand-lg navbar-dark fixed-top" style="background-color: #000000; border-bottom: 3px solid #FBCF00;">
         <div class="container-fluid">
             <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="/">
                 {% set _logo_global = (global_settings.logo or global_settings.logo_path) if global_settings is defined else None %}
                 {% if _logo_global %}
-                    <img src="{{ _logo_global }}" alt="Logo" style="height:28px; width:auto; object-fit:contain;" />
+                    <img src="{{ _logo_global }}" alt="Logo" style="height:32px; width:auto; object-fit:contain;" />
                 {% else %}
                     <i class="bi bi-gear-fill"></i>
                 {% endif %}
-                <span>{{ _app_name }}</span>
             </a>
             
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -221,13 +225,8 @@
 
                 <ul class="navbar-nav">
                     <li class="nav-item">
-                        <a class="nav-link" href="#" onclick="location.reload(); return false;" title="Actualiser la page">
-                            <i class="bi bi-arrow-clockwise me-1"></i>Actualiser
-                        </a>
-                    </li>
-                    <li class="nav-item">
                         <a class="nav-link" href="/settings">
-                            <i class="bi bi-gear-fill me-1"></i>ParamÃ¨tres
+                            <i class="bi bi-gear-fill me-1"></i>Paramètres
                         </a>
                     </li>
                     <li class="nav-item dropdown">

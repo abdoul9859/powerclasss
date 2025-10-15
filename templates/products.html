@@ -216,16 +216,23 @@
                     </div>
 
                     <div class="row">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div class="mb-3">
                                 <label for="productPurchasePrice" class="form-label">Prix d'achat (FCFA)</label>
                                 <input type="number" class="form-control" id="productPurchasePrice" step="1" min="0" inputmode="numeric" pattern="[0-9]*">
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <div class="mb-3">
-                                <label for="productPrice" class="form-label">Prix de vente (FCFA) *</label>
+                                <label for="productPrice" class="form-label">Prix unitaire (FCFA) *</label>
                                 <input type="number" class="form-control" id="productPrice" step="1" min="0" inputmode="numeric" pattern="[0-9]*" required>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="productWholesalePrice" class="form-label">Prix en gros (FCFA)</label>
+                                <input type="number" class="form-control" id="productWholesalePrice" step="1" min="0" inputmode="numeric" pattern="[0-9]*">
+                                <div class="form-text">Optionnel - pour ventes en gros</div>
                             </div>
                         </div>
                     </div>
@@ -258,6 +265,19 @@
                     <div class="mb-3">
                         <label for="productNotes" class="form-label">Notes</label>
                         <textarea class="form-control" id="productNotes" rows="2"></textarea>
+                    </div>
+
+                    <!-- Image du produit -->
+                    <div class="mb-3">
+                        <label class="form-label">Image du produit</label>
+                        <div id="productImagePreview" class="mb-2" style="display: none;">
+                            <img id="productImagePreviewImg" src="" alt="Image du produit" style="max-width: 200px; max-height: 200px; border-radius: 8px;">
+                            <button type="button" class="btn btn-sm btn-outline-danger ms-2" onclick="deleteProductImage()">
+                                <i class="bi bi-trash"></i> Supprimer
+                            </button>
+                        </div>
+                        <input type="file" class="form-control" id="productImageFile" accept="image/*" onchange="previewProductImage(this)">
+                        <div class="form-text">Formats acceptés : JPG, PNG, GIF, WEBP (max 5MB)</div>
                     </div>
 
                     <!-- Attributs dynamiques de la catégorie -->

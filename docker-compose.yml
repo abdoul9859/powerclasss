@@ -1,49 +1,59 @@
-version: "3.9"
+# Docker Compose configuration for PowerClass
+# Note: 'version' is obsolete in recent Docker Compose versions
 
 services:
   db:
     image: postgres:15-alpine
-    container_name: geek_db
+    container_name: powerclasss_db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 123
-      POSTGRES_DB: geektechnologie_db
+      POSTGRES_DB: powerclasss_db
     ports:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+      - ./backups:/backups
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: geek_app
+    container_name: powerclasss_app
     depends_on:
       db:
         condition: service_healthy
     environment:
-      # The app reads DATABASE_URL and DB_SSLMODE
-      DATABASE_URL: postgresql://postgres:123@db:5432/geektechnologie_db
+      DATABASE_URL: postgresql://postgres:123@db:5432/powerclasss_db
       DB_SSLMODE: disable
       HOST: 0.0.0.0
       PORT: "8000"
       RELOAD: "false"
-      # Optional initial seed flags (toggle as needed)
       INIT_DB_ON_STARTUP: "true"
       SEED_DEFAULT_DATA: "true"
+      ENABLE_MIGRATIONS_WORKER: "false"
+      GOOGLE_SHEETS_CREDENTIALS_PATH: /app/credentials/symbolic-folio-470422-v3-71562b79a03f.json
+      GOOGLE_SHEETS_SPREADSHEET_ID: 1VHMujdZw-iPs28pz1rC9Ol72T9l9YTW6Wr9j5ujEsXQ
+      GOOGLE_SHEETS_WORKSHEET_NAME: Les produits
+      GOOGLE_SHEETS_AUTO_SYNC: "true"
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
-    command: ["python", "-u", "start.py"]
+      - ./static/uploads:/app/static/uploads
+      - ./logs:/app/logs
+      - ./credentials:/app/credentials:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   db_data:
-
-
-

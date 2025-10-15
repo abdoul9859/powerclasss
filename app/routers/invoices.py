@@ -22,6 +22,7 @@ from ..schemas import InvoiceCreate, InvoiceResponse, InvoiceItemResponse
 from ..auth import get_current_user
 from ..routers.stock_movements import create_stock_movement
 from ..services.stats_manager import recompute_invoices_stats
+from ..services.google_sheets_sync_helper import sync_product_stock_to_sheets
 import logging
 import os
 
@@ -426,6 +427,14 @@ async def create_invoice(
             except Exception:
                 # Ne pas bloquer la création de facture si l'enregistrement du mouvement échoue
                 pass
+
+            # Synchroniser le stock avec Google Sheets (si activé)
+            try:
+                sync_product_stock_to_sheets(db, item_data.product_id)
+            except Exception as e:
+                # Ne pas bloquer la création de facture si la sync Google Sheets échoue
+                logging.warning(f"Échec de synchronisation Google Sheets pour le produit {item_data.product_id}: {e}")
+                pass
         
         db.commit()
         db.refresh(db_invoice)
@@ -757,6 +766,13 @@ async def update_invoice(
             except Exception:
                 pass
 
+            # Synchroniser le stock avec Google Sheets (si activé)
+            try:
+                sync_product_stock_to_sheets(db, item_data.product_id)
+            except Exception as e:
+                logging.warning(f"Échec de synchronisation Google Sheets pour le produit {item_data.product_id}: {e}")
+                pass
+
         db.commit()
         db.refresh(invoice)
         
@@ -921,6 +937,12 @@ async def delete_invoice(
                     notes=f"Annulation facture {invoice.invoice_number}",
                     unit_price=float(item.price)
                 )
+
+                # Synchroniser le stock avec Google Sheets (si activé)
+                try:
+                    sync_product_stock_to_sheets(db, item.product_id)
+                except Exception as e:
+                    logging.warning(f"Échec de synchronisation Google Sheets pour le produit {item.product_id}: {e}")
         
         # Réactiver les variantes vendues
         try:

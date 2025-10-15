@@ -425,23 +425,105 @@ async def get_cache_info(
     """Informations sur le cache (debugging)"""
     cache_entries = []
     current_time = time.time()
-    
+
     for key, entry in _cache.items():
         age_seconds = current_time - entry['timestamp']
         is_valid = age_seconds < _cache_duration
-        
+
         cache_entries.append({
             "key": key,
             "age_seconds": int(age_seconds),
             "is_valid": is_valid,
             "expires_in": int(_cache_duration - age_seconds) if is_valid else 0
         })
-    
+
     return {
         "cache_duration_seconds": _cache_duration,
         "total_entries": len(_cache),
         "entries": cache_entries
     }
+
+@router.get("/sales-trend")
+async def get_sales_trend(
+    days: int = 7,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Tendance des ventes sur les N derniers jours"""
+    try:
+        cache_key = _get_cache_key("sales_trend", days)
+
+        def compute_trend():
+            today = date.today()
+            paid_statuses = ["payée", "PAID"]
+
+            # Calculer les ventes pour chaque jour
+            trend_data = []
+            for i in range(days - 1, -1, -1):
+                target_date = today - timedelta(days=i)
+
+                daily_revenue = db.query(func.coalesce(func.sum(Invoice.total), 0)).filter(
+                    Invoice.date == target_date,
+                    Invoice.status.in_(paid_statuses)
+                ).scalar() or 0
+
+                trend_data.append({
+                    "date": target_date.isoformat(),
+                    "revenue": float(daily_revenue)
+                })
+
+            return trend_data
+
+        result = _get_cached_or_compute(cache_key, compute_trend)
+        return result
+
+    except Exception as e:
+        logging.error(f"Erreur sales trend: {e}")
+        return []
+
+@router.get("/sales-by-category")
+async def get_sales_by_category(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Répartition des ventes par catégorie"""
+    try:
+        cache_key = _get_cache_key("sales_by_category", days)
+
+        def compute_category_sales():
+            since_date = date.today() - timedelta(days=days)
+
+            # Récupérer les ventes par catégorie via les items de facture et produits
+            category_sales = db.query(
+                Product.category,
+                func.coalesce(func.sum(InvoiceItem.total), 0).label("revenue")
+            ).join(
+                InvoiceItem, InvoiceItem.product_id == Product.product_id
+            ).join(
+                Invoice, InvoiceItem.invoice_id == Invoice.invoice_id
+            ).filter(
+                Invoice.date >= since_date
+            ).group_by(
+                Product.category
+            ).order_by(
+                desc("revenue")
+            ).limit(10).all()
+
+            return [
+                {
+                    "category": category or "Non catégorisé",
+                    "revenue": float(revenue or 0)
+                }
+                for category, revenue in category_sales
+            ]
+
+        result = _get_cached_or_compute(cache_key, compute_category_sales)
+        return result
+
+    except Exception as e:
+        logging.error(f"Erreur sales by category: {e}")
+        return []
 
 @router.post("/optimize")
 async def optimize_database(

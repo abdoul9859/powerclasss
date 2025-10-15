@@ -86,33 +86,9 @@ document.addEventListener('DOMContentLoaded', function() {
         return hasAuthManager && (window.authManager.isAuthenticatedSync() || hasUser);
     };
 
-    if (!ready()) {
-        // Retenter après la vérification d'auth
-        setTimeout(() => {
-            if (!ready()) return;
-            loadInvoices();
-            loadStats();
-            // Lazy: clients/products chargés à l'usage
-            setupEventListeners();
-            setDefaultDates();
-            // Traiter un éventuel pré-remplissage après chargement des produits/clients
-            try {
-                const raw = sessionStorage.getItem('prefill_invoice_from_quotation');
-                if (raw) {
-                    const data = JSON.parse(raw);
-                    sessionStorage.removeItem('prefill_invoice_from_quotation');
-                    if (!Array.isArray(products) || !products.length) { try { loadProducts(); } catch(e) {} }
-                    if (!Array.isArray(clients) || !clients.length) { try { loadClients(); } catch(e) {} }
-                    Promise.all([waitForProductsLoaded(), waitForClientsLoaded()])
-                        .then(() => preloadPrefilledInvoiceFromQuotation(data));
-                }
-            } catch (e) {}
-        }, 300);
-        return;
-    }
-    
+    // Initialiser immédiatement sans délai pour un chargement instantané
     loadInvoices();
-    setTimeout(() => { try { loadStats(); } catch(e){} }, 200);
+    try { loadStats(); } catch(e){}
     // Lazy: clients/products chargés à l'usage
     setupEventListeners();
     setDefaultDates();
@@ -282,9 +258,15 @@ function setupEventListeners() {
                 const isOutOfStock = available === 0;
                 return `
                 <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center ${isOutOfStock ? 'text-muted' : ''}" data-product-id="${p.product_id}">
-                    <div class="me-2">
-                        <div class="fw-semibold d-flex align-items-center">${escapeHtml(p.name || '')} ${stockBadge}</div>
-                        <div class="text-muted small">${[p.barcode ? 'Code: '+escapeHtml(p.barcode) : '', sub ? escapeHtml(sub) : ''].filter(Boolean).join(' • ')}</div>
+                    <div class="d-flex align-items-center gap-2 me-2">
+                        ${p.image_path ? `
+                            <img src="/${p.image_path}" alt="${escapeHtml(p.name || '')}"
+                                 style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;">
+                        ` : ''}
+                        <div>
+                            <div class="fw-semibold d-flex align-items-center">${escapeHtml(p.name || '')} ${stockBadge}</div>
+                            <div class="text-muted small">${[p.barcode ? 'Code: '+escapeHtml(p.barcode) : '', sub ? escapeHtml(sub) : ''].filter(Boolean).join(' • ')}</div>
+                        </div>
                     </div>
                     <div class="text-nowrap ms-3">${formatCurrency(p.price)}</div>
                 </div>`;
@@ -1233,7 +1215,7 @@ function updateInvoiceItemsDisplay() {
     if (invoiceItems.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="5" class="text-center text-muted py-3">
+                <td colspan="7" class="text-center text-muted py-3">
                     <i class="bi bi-inbox me-2"></i>Aucun article ajouté
                 </td>
             </tr>
@@ -1268,7 +1250,7 @@ function updateInvoiceItemsDisplay() {
                                     const disabled = alreadySelected || isOutOfStock;
                                     return `
                                 <option value="${product.product_id}" ${product.product_id == item.product_id ? 'selected' : ''} ${disabled ? 'disabled' : ''}>
-                                    ${escapeHtml(product.name)} - ${formatCurrency(product.price)} ${isOutOfStock ? '(épuisé)' : `(Stock: ${available})`} ${alreadySelected ? '(déjà sélectionné)' : ''}
+                                    ${escapeHtml(product.name)} - ${formatCurrency(product.price)}${product.wholesale_price ? ` / Gros: ${formatCurrency(product.wholesale_price)}` : ''} ${isOutOfStock ? '(épuisé)' : `(Stock: ${available})`} ${alreadySelected ? '(déjà sélectionné)' : ''}
                                 </option>`;
                                 }).join('')}
                         </select>
@@ -1301,13 +1283,25 @@ function updateInvoiceItemsDisplay() {
                 </select>
             </td>
             <td>
-                <input type="number" class="form-control form-control-sm" value="${item.quantity}" min="0" 
+                <input type="number" class="form-control form-control-sm" value="${item.quantity}" min="0"
                        ${item.is_custom ? '' : (((productVariantsByProductId.get(Number(item.product_id)) || []).length > 0) ? 'disabled' : '')}
                        onchange="updateItemQuantity(${item.id}, this.value)" oninput="updateItemQuantity(${item.id}, this.value)">
             </td>
             <td>
+                ${!item.is_custom && item.product_id ? (() => {
+                    const product = (products||[]).find(p => p.product_id == item.product_id) || (Array.isArray(window._latestProductResults)? window._latestProductResults.find(p => p.product_id == item.product_id) : null);
+                    const hasWholesale = product && product.wholesale_price;
+                    return hasWholesale ? `
+                        <select class="form-select form-select-sm" onchange="togglePriceType(${item.id}, this.value === 'wholesale')">
+                            <option value="unit" ${item.price_type !== 'wholesale' ? 'selected' : ''}>Unitaire</option>
+                            <option value="wholesale" ${item.price_type === 'wholesale' ? 'selected' : ''}>Gros</option>
+                        </select>
+                    ` : '<small class="text-muted">-</small>';
+                })() : '<small class="text-muted">-</small>'}
+            </td>
+            <td>
                 <input type="text" class="form-control form-control-sm" value="${(item.unit_price).toLocaleString('fr-FR') }"
-                       oninput="handlePriceInput(${item.id}, this)" 
+                       oninput="handlePriceInput(${item.id}, this)"
                        onchange="handlePriceInput(${item.id}, this)">
             </td>
             <td><strong class="row-total">${formatCurrency(item.total)}</strong></td>
@@ -1322,7 +1316,7 @@ function updateInvoiceItemsDisplay() {
     calculateTotals();
 }
 
-function selectProduct(itemId, productId) {
+function selectProduct(itemId, productId, useBulkPrice = false) {
     const item = invoiceItems.find(i => i.id === itemId);
     let product = products.find(p => String(p.product_id) == String(productId));
     // Fallback: utiliser les derniers résultats de recherche
@@ -1340,7 +1334,7 @@ function selectProduct(itemId, productId) {
                 }
                 try { if (Array.isArray(data.variants)) productVariantsByProductId.set(Number(data.product_id), data.variants); } catch (e) {}
                 // Appliquer la sélection
-                selectProduct(itemId, data.product_id);
+                selectProduct(itemId, data.product_id, useBulkPrice);
             }).catch(() => {
                 // dernier recours: appliquer avec les infos minimales
                 if (item) {
@@ -1359,7 +1353,9 @@ function selectProduct(itemId, productId) {
     if (item && product) {
         item.product_id = product.product_id;
         item.product_name = product.name;
-        item.unit_price = Math.round(Number(product.price) || 0);
+        // Choisir le prix: en gros si disponible et demandé, sinon unitaire
+        item.unit_price = Math.round((useBulkPrice && product.wholesale_price) ? Number(product.wholesale_price) : Number(product.price) || 0);
+        item.price_type = (useBulkPrice && product.wholesale_price) ? 'wholesale' : 'unit';
         item.total = item.quantity * item.unit_price;
         // Reset variant when product changes
         item.variant_id = null;
@@ -1376,6 +1372,12 @@ function selectProduct(itemId, productId) {
         updateInvoiceItemsDisplay();
         calculateTotals();
     }
+}
+
+function togglePriceType(itemId, useBulkPrice) {
+    const item = invoiceItems.find(i => i.id === itemId);
+    if (!item || !item.product_id) return;
+    selectProduct(itemId, item.product_id, useBulkPrice);
 }
 
 function updateCustomName(itemId, name) {

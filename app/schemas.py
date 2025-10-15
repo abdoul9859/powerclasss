@@ -15,6 +15,13 @@ class UserCreate(BaseModel):
     full_name: Optional[str] = None
     role: str = "user"
 
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+
 class UserResponse(BaseModel):
     user_id: int
     username: str
@@ -146,6 +153,7 @@ class ProductCreate(BaseModel):
     description: Optional[str] = None
     quantity: int = 0
     price: Decimal
+    wholesale_price: Optional[Decimal] = None
     purchase_price: Optional[Decimal] = 0.00
     category: Optional[str] = None
     brand: Optional[str] = None
@@ -155,6 +163,7 @@ class ProductCreate(BaseModel):
     has_unique_serial: bool = False
     entry_date: Optional[datetime] = None
     notes: Optional[str] = None
+    image_path: Optional[str] = None  # Chemin vers l'image du produit
     variants: List[ProductVariantCreate] = []
 
 class ProductUpdate(BaseModel):
@@ -162,6 +171,7 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     quantity: Optional[int] = None
     price: Optional[Decimal] = None
+    wholesale_price: Optional[Decimal] = None
     purchase_price: Optional[Decimal] = None
     category: Optional[str] = None
     brand: Optional[str] = None
@@ -171,6 +181,7 @@ class ProductUpdate(BaseModel):
     has_unique_serial: Optional[bool] = None
     entry_date: Optional[datetime] = None
     notes: Optional[str] = None
+    image_path: Optional[str] = None  # Chemin vers l'image du produit
     variants: Optional[List[ProductVariantCreate]] = None
 
 class ProductResponse(BaseModel):
@@ -179,6 +190,7 @@ class ProductResponse(BaseModel):
     description: Optional[str]
     quantity: int
     price: Decimal
+    wholesale_price: Optional[Decimal]
     purchase_price: Decimal
     category: Optional[str]
     brand: Optional[str]
@@ -188,9 +200,10 @@ class ProductResponse(BaseModel):
     has_unique_serial: bool
     entry_date: Optional[datetime]
     notes: Optional[str]
+    image_path: Optional[str] = None  # Chemin vers l'image du produit
     created_at: datetime
     variants: List[ProductVariantResponse] = []
-    
+
     class Config:
         from_attributes = True
 
@@ -215,6 +228,7 @@ class ProductListItem(BaseModel):
     description: Optional[str]
     quantity: int
     price: Decimal
+    wholesale_price: Optional[Decimal]
     purchase_price: Decimal
     category: Optional[str]
     brand: Optional[str]
@@ -224,6 +238,7 @@ class ProductListItem(BaseModel):
     has_unique_serial: bool
     entry_date: Optional[datetime]
     notes: Optional[str]
+    image_path: Optional[str] = None  # Chemin vers l'image du produit
     created_at: datetime
     # Champs légers pour l'affichage de la liste (optimisation)
     has_variants: Optional[bool] = None

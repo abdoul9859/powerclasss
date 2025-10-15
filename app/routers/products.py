@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import selectinload, load_only
 from sqlalchemy import or_, and_, func, text, exists, case
 from typing import List, Optional, Dict
 from decimal import Decimal
+import os
+import shutil
+from pathlib import Path
 from ..database import (
     get_db, Product, ProductVariant, ProductVariantAttribute, StockMovement, Category,
     CategoryAttribute, CategoryAttributeValue, UserSettings
@@ -738,6 +741,7 @@ async def create_product(
             description=product_data.description,
             quantity=len(normalized_variants) if has_variants else product_data.quantity,
             price=product_data.price,
+            wholesale_price=product_data.wholesale_price,
             purchase_price=product_data.purchase_price,
             category=product_data.category,
             brand=product_data.brand,
@@ -1771,3 +1775,106 @@ async def products_cache_info(current_user = Depends(get_current_user)):
             "expires_in": int(_cache_duration - age) if valid else 0,
         })
     return {"cache_duration_seconds": _cache_duration, "total_entries": len(entries), "entries": entries}
+
+
+# ==== GESTION DES IMAGES PRODUITS ====
+
+@router.post("/id/{product_id}/upload-image")
+async def upload_product_image(
+    product_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user = Depends(require_any_role(["manager"]))
+):
+    """Upload une image pour un produit"""
+    try:
+        # Vérifier que le produit existe
+        product = db.query(Product).filter(Product.product_id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Produit non trouvé")
+
+        # Valider le type de fichier
+        allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+        file_ext = Path(file.filename).suffix.lower()
+        if file_ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Type de fichier non autorisé. Types acceptés : {', '.join(allowed_extensions)}"
+            )
+
+        # Créer le dossier uploads/products s'il n'existe pas
+        upload_dir = Path("static/uploads/products")
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        # Générer un nom de fichier unique
+        import uuid
+        unique_filename = f"product_{product_id}_{uuid.uuid4().hex}{file_ext}"
+        file_path = upload_dir / unique_filename
+
+        # Supprimer l'ancienne image si elle existe
+        if product.image_path:
+            old_image_path = Path(product.image_path)
+            if old_image_path.exists():
+                try:
+                    old_image_path.unlink()
+                except Exception as e:
+                    logging.warning(f"Impossible de supprimer l'ancienne image: {e}")
+
+        # Sauvegarder le fichier
+        with file_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # Mettre à jour le produit avec le chemin de l'image
+        product.image_path = str(file_path)
+        db.commit()
+        db.refresh(product)
+
+        return {
+            "message": "Image uploadée avec succès",
+            "image_path": str(file_path),
+            "product_id": product_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Erreur lors de l'upload de l'image: {e}")
+        raise HTTPException(status_code=500, detail="Erreur lors de l'upload de l'image")
+
+
+@router.delete("/id/{product_id}/delete-image")
+async def delete_product_image(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_any_role(["manager"]))
+):
+    """Supprimer l'image d'un produit"""
+    try:
+        product = db.query(Product).filter(Product.product_id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Produit non trouvé")
+
+        if not product.image_path:
+            raise HTTPException(status_code=404, detail="Ce produit n'a pas d'image")
+
+        # Supprimer le fichier physique
+        image_path = Path(product.image_path)
+        if image_path.exists():
+            try:
+                image_path.unlink()
+            except Exception as e:
+                logging.warning(f"Impossible de supprimer le fichier image: {e}")
+
+        # Mettre à jour le produit
+        product.image_path = None
+        db.commit()
+
+        return {"message": "Image supprimée avec succès"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Erreur lors de la suppression de l'image: {e}")
+        raise HTTPException(status_code=500, detail="Erreur lors de la suppression de l'image")
