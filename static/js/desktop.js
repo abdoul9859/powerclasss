@@ -1,4 +1,4 @@
-/* Desktop window manager for GEEK TECHNOLOGIE */
+/* Desktop window manager for POWERCLASSS */
 (function(){
   const APPS = [
     { id:'dashboard', title:'Dashboard', icon:'📊', url:'/dashboard' },

@@ -65,7 +65,7 @@ from app.services.migration_processor import migration_processor
 
 # Créer l'application FastAPI
 app = FastAPI(
-    title="GEEK TECHNOLOGIE - Gestion de Stock",
+    title="POWERCLASSS - Gestion de Stock",
     description="Application de gestion de stock et facturation avec FastAPI et Bootstrap",
     version="1.0.0"
 )
@@ -253,7 +253,7 @@ async def favicon():
 @app.get("/api")
 async def api_status():
     return {
-        "message": "API GEEK TECHNOLOGIE",
+        "message": "API POWERCLASSS",
         "status": "running",
         "version": "1.0.0",
         "framework": "FastAPI"

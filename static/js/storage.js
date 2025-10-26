@@ -1,4 +1,4 @@
-// Système de stockage unifié pour GEEK TECHNOLOGIE (API SQLite)
+// Système de stockage unifié pour POWERCLASSS (API SQLite)
 
 class ApiStorage {
     constructor() {

@@ -1,4 +1,4 @@
-# GEEK TECHNOLOGIE - Gestion de Stock
+# POWERCLASSS - Gestion de Stock
 
 Application de gestion de stock et facturation développée avec **FastAPI** et **Bootstrap**, reproduisant les fonctionnalités de l'application template Node.js/React.
 
@@ -152,7 +152,7 @@ La base de données SQLite reproduit exactement la structure PostgreSQL :
 ### Design
 - **Bootstrap 5** : Interface moderne et responsive
 - **Bootstrap Icons** : Icônes cohérentes
-- **Thème personnalisé** : Couleurs GEEK TECHNOLOGIE
+- **Thème personnalisé** : Couleurs POWERCLASSS
 - **Animations CSS** : Transitions fluides
 
 ### Pages
@@ -235,4 +235,4 @@ Pour toute question ou problème :
 
 ## 📄 Licence
 
-Application développée pour GEEK TECHNOLOGIE - Tous droits réservés.
+Application développée pour POWERCLASSS - Tous droits réservés.

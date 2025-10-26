@@ -55,7 +55,7 @@ curl -s http://localhost:8000/api
 
 **Résultat attendu** :
 ```json
-✅ {"message":"API GEEK TECHNOLOGIE","status":"running",...}
+✅ {"message":"API POWERCLASSS","status":"running",...}
 ```
 
 ## 🎯 Test de fonctionnement
