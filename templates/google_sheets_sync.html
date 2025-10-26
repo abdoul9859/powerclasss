@@ -9,7 +9,6 @@
     <link rel="stylesheet" href="/static/css/style.css?v={{ ASSET_VERSION }}">
 </head>
 <body>
-    {% include 'navbar.html' %}
 
     <div class="container mt-4">
         <div class="row">
@@ -144,6 +143,56 @@
                     </div>
                 </div>
 
+                <!-- Synchronisation Automatique -->
+                <div class="card mb-4">
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="mb-0"><i class="fas fa-robot me-2"></i>Synchronisation Automatique</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-3">
+                            La synchronisation automatique vérifie les changements dans Google Sheets et met à jour l'application automatiquement.
+                        </p>
+                        
+                        <!-- Statut de la synchronisation automatique -->
+                        <div class="alert alert-info" id="auto-sync-status-alert">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong>Statut:</strong> 
+                                    <span id="auto-sync-status-text">Chargement...</span>
+                                </div>
+                                <span id="auto-sync-status-badge" class="badge bg-secondary">-</span>
+                            </div>
+                            <div id="auto-sync-details" style="display: none;" class="mt-2">
+                                <small>
+                                    <div><strong>Intervalle:</strong> <span id="sync-interval">-</span> minutes</div>
+                                    <div><strong>Dernière sync:</strong> <span id="last-sync-time">-</span></div>
+                                    <div><strong>Prochaine sync:</strong> <span id="next-sync-time">-</span></div>
+                                    <div id="last-sync-stats" class="mt-2" style="display: none;">
+                                        <strong>Derniers résultats:</strong>
+                                        <span id="last-stats-text"></span>
+                                    </div>
+                                </small>
+                            </div>
+                        </div>
+
+                        <!-- Boutons de contrôle -->
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-success" id="start-auto-sync-btn">
+                                <i class="fas fa-play me-1"></i>Démarrer
+                            </button>
+                            <button type="button" class="btn btn-danger" id="stop-auto-sync-btn" disabled>
+                                <i class="fas fa-stop me-1"></i>Arrêter
+                            </button>
+                            <button type="button" class="btn btn-primary" id="trigger-sync-btn" disabled>
+                                <i class="fas fa-sync me-1"></i>Synchroniser Maintenant
+                            </button>
+                            <button type="button" class="btn btn-secondary" id="refresh-status-btn">
+                                <i class="fas fa-refresh me-1"></i>Actualiser le Statut
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Résultats de synchronisation -->
                 <div class="card mb-4" id="sync-results-card" style="display: none;">
                     <div class="card-header bg-success text-white">
@@ -207,9 +256,7 @@
         async function loadConfigStatus() {
             try {
                 const response = await fetch('/api/google-sheets/settings', {
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
-                    }
+                    credentials: 'include'
                 });
 
                 if (response.ok) {
@@ -266,9 +313,9 @@
                 const response = await fetch('/api/google-sheets/test-connection', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        'Content-Type': 'application/json'
                     },
+                    credentials: 'include',
                     body: JSON.stringify({ spreadsheet_id: spreadsheetId })
                 });
 
@@ -312,9 +359,9 @@
                 const response = await fetch('/api/google-sheets/sync', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        'Content-Type': 'application/json'
                     },
+                    credentials: 'include',
                     body: JSON.stringify({
                         spreadsheet_id: spreadsheetId,
                         worksheet_name: worksheetName,
@@ -355,8 +402,192 @@
             }
         });
 
+        // Charger le statut de la synchronisation automatique
+        async function loadAutoSyncStatus() {
+            try {
+                const response = await fetch('/api/google-sheets/auto-sync/status', {
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const status = data.status;
+
+                    // Mise à jour du statut
+                    const statusText = document.getElementById('auto-sync-status-text');
+                    const statusBadge = document.getElementById('auto-sync-status-badge');
+                    const startBtn = document.getElementById('start-auto-sync-btn');
+                    const stopBtn = document.getElementById('stop-auto-sync-btn');
+                    const triggerBtn = document.getElementById('trigger-sync-btn');
+
+                    if (status.is_running) {
+                        statusText.textContent = 'Actif';
+                        statusBadge.textContent = 'EN COURS';
+                        statusBadge.className = 'badge bg-success';
+                        startBtn.disabled = true;
+                        stopBtn.disabled = false;
+                        triggerBtn.disabled = false;
+
+                        // Afficher les détails
+                        document.getElementById('auto-sync-details').style.display = 'block';
+                        document.getElementById('sync-interval').textContent = status.sync_interval_minutes;
+                        
+                        if (status.last_sync_time) {
+                            const lastSync = new Date(status.last_sync_time);
+                            document.getElementById('last-sync-time').textContent = lastSync.toLocaleString('fr-FR');
+                        }
+                        
+                        if (status.next_sync_time) {
+                            const nextSync = new Date(status.next_sync_time);
+                            document.getElementById('next-sync-time').textContent = nextSync.toLocaleString('fr-FR');
+                        }
+
+                        if (status.last_sync_stats) {
+                            const stats = status.last_sync_stats;
+                            document.getElementById('last-stats-text').textContent = 
+                                `${stats.updated} mis à jour, ${stats.created} créés, ${stats.errors} erreurs`;
+                            document.getElementById('last-sync-stats').style.display = 'block';
+                        }
+                    } else {
+                        statusText.textContent = 'Inactif';
+                        statusBadge.textContent = 'ARRÊTÉ';
+                        statusBadge.className = 'badge bg-secondary';
+                        startBtn.disabled = false;
+                        stopBtn.disabled = true;
+                        triggerBtn.disabled = true;
+                        document.getElementById('auto-sync-details').style.display = 'none';
+                    }
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+            }
+        }
+
+        // Démarrer la synchronisation automatique
+        document.getElementById('start-auto-sync-btn').addEventListener('click', async function() {
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Démarrage...';
+
+            try {
+                const spreadsheetId = document.getElementById('spreadsheet-id').value.trim();
+                const worksheetName = document.getElementById('worksheet-name').value.trim();
+                const payload = {
+                    spreadsheet_id: spreadsheetId || undefined,
+                    worksheet_name: worksheetName || undefined
+                };
+                const response = await fetch('/api/google-sheets/auto-sync/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showAlert(data.message, 'success');
+                    await loadAutoSyncStatus();
+                } else {
+                    showAlert(`Erreur: ${data.detail || data.message}`, 'danger');
+                    btn.disabled = false;
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+                showAlert('Erreur lors du démarrage de la synchronisation automatique', 'danger');
+                btn.disabled = false;
+            } finally {
+                btn.innerHTML = '<i class="fas fa-play me-1"></i>Démarrer';
+            }
+        });
+
+        // Arrêter la synchronisation automatique
+        document.getElementById('stop-auto-sync-btn').addEventListener('click', async function() {
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Arrêt...';
+
+            try {
+                const response = await fetch('/api/google-sheets/auto-sync/stop', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showAlert(data.message, 'info');
+                    await loadAutoSyncStatus();
+                } else {
+                    showAlert(`Erreur: ${data.message}`, 'danger');
+                    btn.disabled = false;
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+                showAlert('Erreur lors de l\'arrêt de la synchronisation automatique', 'danger');
+                btn.disabled = false;
+            } finally {
+                btn.innerHTML = '<i class="fas fa-stop me-1"></i>Arrêter';
+            }
+        });
+
+        // Déclencher une synchronisation immédiate
+        document.getElementById('trigger-sync-btn').addEventListener('click', async function() {
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Synchronisation...';
+
+            try {
+                const response = await fetch('/api/google-sheets/auto-sync/trigger', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showAlert(data.message, 'success');
+                    
+                    if (data.stats) {
+                        showAlert(
+                            `Résultats: ${data.stats.updated} mis à jour, ${data.stats.created} créés, ${data.stats.errors} erreurs`,
+                            'info'
+                        );
+                    }
+                    
+                    await loadAutoSyncStatus();
+                } else {
+                    showAlert(`Erreur: ${data.detail || data.message}`, 'danger');
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+                showAlert('Erreur lors de la synchronisation', 'danger');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-sync me-1"></i>Synchroniser Maintenant';
+            }
+        });
+
+        // Actualiser le statut
+        document.getElementById('refresh-status-btn').addEventListener('click', async function() {
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Actualisation...';
+
+            await loadAutoSyncStatus();
+
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-refresh me-1"></i>Actualiser le Statut';
+            }, 500);
+        });
+
         // Charger la configuration au chargement de la page
         loadConfigStatus();
+        loadAutoSyncStatus();
+
+        // Actualiser le statut toutes les 30 secondes
+        setInterval(loadAutoSyncStatus, 30000);
     </script>
 </body>
 </html>

@@ -49,6 +49,8 @@ h1 i, h2 i, h3 i, h4 i, h5 i, h6 i,
 .navbar {
     box-shadow: 0 2px 8px rgba(251, 207, 0, 0.3);
     font-family: 'Anybody', sans-serif;
+    padding-top: 0.9rem;
+    padding-bottom: 0.9rem;
 }
 
 .navbar-brand {

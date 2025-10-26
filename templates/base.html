@@ -5,15 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     {% set _gs = global_settings or {} %}
     {% set _comp = _gs.company if _gs.company is defined else {} %}
-    {% set _app_name = _gs.name or _gs.company_name or (_comp.companyName if _comp is defined else None) or (_comp.name if _comp is defined else None) or 'GEEK TECHNOLOGIE' %}
+    {% set _app_name = _gs.name or _gs.company_name or (_comp.companyName if _comp is defined else None) or (_comp.name if _comp is defined else None) or 'POWERCLASSS' %}
     <title>{% block title %}{{ _app_name }}{% endblock %}</title>
-    {% set _favicon = (_gs.favicon or _gs.logo or _gs.logo_path) if _gs is defined else None %}
+    {% set _favicon = _gs.favicon if (_gs is defined and _gs.favicon) else None %}
     {% if _favicon %}
-    <link rel="icon" href="{{ _favicon }}">
-    <link rel="shortcut icon" href="{{ _favicon }}">
+    <link rel="icon" href="{{ _favicon }}?v={{ ASSET_VERSION() }}">
+    <link rel="shortcut icon" href="{{ _favicon }}?v={{ ASSET_VERSION() }}">
     {% else %}
-    <link rel="icon" href="/static/favicon.ico?v={{ ASSET_VERSION }}">
-    <link rel="shortcut icon" href="/static/favicon.ico?v={{ ASSET_VERSION }}">
+    <link rel="icon" href="/static/favicon.ico?v={{ ASSET_VERSION() }}">
+    <link rel="shortcut icon" href="/static/favicon.ico?v={{ ASSET_VERSION() }}">
     {% endif %}
     
     <!-- Google Fonts - Anybody -->
@@ -50,18 +50,18 @@
       })();
     </script>
     <!-- Custom CSS -->
-    <link href="/static/css/style.css?v={{ ASSET_VERSION }}" rel="stylesheet">
+    <link href="/static/css/style.css?v={{ ASSET_VERSION() }}" rel="stylesheet">
 
     <style>
         /* Padding pour compenser la navbar fixe */
         body#app-body {
-            padding-top: 76px;
+            padding-top: 88px;
         }
         
         /* Ajustement pour les écrans plus petits */
         @media (max-width: 991.98px) {
             body#app-body {
-                padding-top: 66px;
+                padding-top: 78px;
             }
         }
         /* Mode embarqué (iframe) : pas de navbar, pas de padding top */
@@ -71,6 +71,9 @@
         body#app-body.embedded > nav.navbar {
             display: none !important;
         }
+        .app-container {
+            max-width: 1900px;
+        }
     </style>
     
     {% block extra_head %}{% endblock %}
@@ -78,7 +81,7 @@
 <body id="app-body">
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark fixed-top" style="background-color: #000000; border-bottom: 3px solid #FBCF00;">
-        <div class="container-fluid">
+        <div class="container app-container px-3 px-lg-5">
             <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="/">
                 {% set _logo_global = (global_settings.logo or global_settings.logo_path) if global_settings is defined else None %}
                 {% if _logo_global %}
@@ -145,8 +148,8 @@
                             <li><a class="dropdown-item" href="/daily-sales">
                                 <i class="bi bi-cart-check me-2"></i>Ventes Quotidiennes
                             </a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="/debts">
+                            <li class="admin-only" style="display: none;"><hr class="dropdown-divider"></li>
+                            <li class="admin-only" style="display: none;"><a class="dropdown-item" href="/debts">
                                 <i class="bi bi-credit-card me-2"></i>Créances Clients
                             </a></li>
                         </ul>
@@ -164,15 +167,15 @@
                             <li><a class="dropdown-item" href="/daily-purchases">
                                 <i class="bi bi-basket2-fill me-2"></i>Achats quotidiens
                             </a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="/debts">
+                            <li class="admin-only" style="display: none;"><hr class="dropdown-divider"></li>
+                            <li class="admin-only" style="display: none;"><a class="dropdown-item" href="/debts">
                                 <i class="bi bi-credit-card-2-back me-2"></i>Dettes Fournisseur
                             </a></li>
                         </ul>
                     </li>
                     
                     <!-- Finances -->
-                    <li class="nav-item dropdown">
+                    <li class="nav-item dropdown admin-only" style="display: none;">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                             <i class="bi bi-calculator me-1"></i>Finances
                         </a>
@@ -200,6 +203,9 @@
                                 <i class="bi bi-book me-2"></i>Guide Utilisateur
                             </a></li>
                             <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/google-sheets-sync">
+                                <i class="bi bi-table me-2"></i>Synchronisation Google Sheets
+                            </a></li>
                             <li><a class="dropdown-item" href="/cache-manager">
                                 <i class="bi bi-hdd-stack me-2"></i>Gestionnaire Cache
                             </a></li>
@@ -245,7 +251,7 @@
     </nav>
 
     <!-- Contenu principal -->
-    <main class="container-fluid py-4">
+    <main class="container app-container py-4 px-3 px-lg-5">
         <!-- Alertes (toast/alerts au-dessus des modals) -->
         <div id="alerts-container" class="position-fixed top-0 end-0 p-3" style="z-index: 20000; width: 360px;"></div>
         
@@ -255,13 +261,13 @@
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Client HTTP léger (remplace Axios) -->
-    <script src="/static/js/http.js?v={{ ASSET_VERSION }}"></script>
+    <script src="/static/js/http.js?v={{ ASSET_VERSION() }}"></script>
     <!-- JsBarcode pour l'affichage/imp. des codes-barres -->
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
     <!-- Custom JS -->
-    <script src="/static/js/auth.js?v={{ ASSET_VERSION }}"></script>
-    <script src="/static/js/utils.js?v={{ ASSET_VERSION }}"></script>
-    <script src="/static/js/storage.js?v={{ ASSET_VERSION }}"></script>
+    <script src="/static/js/auth.js?v={{ ASSET_VERSION() }}"></script>
+    <script src="/static/js/utils.js?v={{ ASSET_VERSION() }}"></script>
+    <script src="/static/js/storage.js?v={{ ASSET_VERSION() }}"></script>
     
     <script>
       // Wire navbar searches to pages with query param ?q=
@@ -274,6 +280,26 @@
             document.body.classList.add('embedded');
           }
         } catch(e) {}
+
+        // Afficher les éléments admin-only si l'utilisateur est admin
+        function showAdminElements() {
+          try {
+            if (window.authManager && window.authManager.isAdmin()) {
+              document.querySelectorAll('.admin-only').forEach(el => {
+                el.style.display = 'block';
+              });
+            }
+          } catch(e) {
+            console.error('Erreur lors de la vérification du rôle:', e);
+          }
+        }
+        
+        // Vérifier immédiatement
+        showAdminElements();
+        
+        // Revérifier après un court délai pour s'assurer que authManager.verifyAuth() est terminé
+        setTimeout(showAdminElements, 100);
+        setTimeout(showAdminElements, 500);
 
         const clientInput = document.getElementById('navClientSearch');
         const clientBtn = document.getElementById('navClientSearchBtn');
@@ -403,6 +429,28 @@
         });
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { hideMenu(clientMenu); hideMenu(productMenu); } });
       });
+    </script>
+    <script>
+      (function(){
+        try{
+          if (document.body && document.body.classList.contains('embedded')) return;
+          var lastV = '{{ ASSET_VERSION() }}';
+          function reloadWith(v){
+            try{
+              var u = new URL(window.location.href);
+              u.searchParams.set('__v', v);
+              window.location.replace(u.toString());
+            }catch(e){ window.location.reload(); }
+          }
+          function tick(){
+            fetch('/__live/version', {cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
+              var v = j && j.v ? String(j.v) : null;
+              if (v && v !== lastV){ reloadWith(v); }
+            }).catch(function(){});
+          }
+          setInterval(tick, 2000);
+        }catch(e){}
+      })();
     </script>
     
     {% block extra_scripts %}{% endblock %}

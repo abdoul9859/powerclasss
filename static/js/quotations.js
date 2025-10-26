@@ -113,6 +113,14 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     const boot = () => {
+        // Masquer la carte "Valeur Totale" pour les non-admin
+        try {
+            if (window.authManager && !window.authManager.isAdmin()) {
+                const valueEl = document.getElementById('totalValue');
+                const valueCardCol = valueEl ? valueEl.closest('.col-md-3') : null;
+                if (valueCardCol) valueCardCol.style.display = 'none';
+            }
+        } catch (e) { /* ignore */ }
         loadQuotations();
         try { loadStats(); } catch(e){}
         // Lazy load clients/products on demand only
@@ -199,7 +207,10 @@ function setupEventListeners() {
                             <div class="text-muted small">${p.barcode ? 'Code: '+escapeHtml(p.barcode) : ''}</div>
                         </div>
                     </div>
-                    <div class="text-nowrap ms-3">${formatCurrency(p.price)}</div>
+                    <div class="text-nowrap ms-3">
+                        <div class="fw-semibold">${formatCurrency(p.price)}</div>
+                        ${p.wholesale_price ? `<div class="text-muted small">Gros: ${formatCurrency(p.wholesale_price)}</div>` : ''}
+                    </div>
                 </div>`;
             }).join('');
             suggestBox.classList.toggle('d-none', list.length === 0);

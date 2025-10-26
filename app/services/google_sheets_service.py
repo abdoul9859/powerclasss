@@ -12,6 +12,10 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 from app.database import Product, ProductVariant, ProductVariantAttribute, Category, StockMovement
 from app.schemas import ProductCreate
+import requests
+import hashlib
+from pathlib import Path
+import unicodedata
 
 
 class GoogleSheetsService:
@@ -41,7 +45,9 @@ class GoogleSheetsService:
         'Quantité en stock': 'quantity',  # Version avec accent
         'Description': 'description',
         'Notes': 'notes',
-        'Lieu ou Image du produit': 'image_path'
+        'Lieu ou Image du produit': 'image_path',
+        # Nouvelle colonne pour les IMEI/numéros de série (une par ligne)
+        'IMEI': 'imei_serial'
     }
 
     def __init__(self, credentials_path: Optional[str] = None):
@@ -161,6 +167,60 @@ class GoogleSheetsService:
                 return 0
             return None
 
+    def _download_and_save_image(self, image_url: str, product_name: str) -> Optional[str]:
+        """Télécharge une image depuis une URL et la sauvegarde localement"""
+        try:
+            # Vérifier si c'est une URL valide
+            if not image_url or not image_url.startswith(('http://', 'https://')):
+                # Si ce n'est pas une URL, considérer que c'est déjà un chemin local
+                return image_url if image_url else None
+            
+            # Créer le dossier de destination s'il n'existe pas
+            upload_dir = Path("static/uploads/products")
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Télécharger l'image
+            response = requests.get(image_url, timeout=10, stream=True)
+            response.raise_for_status()
+            
+            # Déterminer l'extension du fichier
+            content_type = response.headers.get('content-type', '')
+            extension = '.jpg'  # Par défaut
+            if 'png' in content_type:
+                extension = '.png'
+            elif 'jpeg' in content_type or 'jpg' in content_type:
+                extension = '.jpg'
+            elif 'webp' in content_type:
+                extension = '.webp'
+            elif 'gif' in content_type:
+                extension = '.gif'
+            
+            # Générer un nom de fichier unique basé sur le nom du produit et un hash
+            safe_name = "".join(c for c in product_name if c.isalnum() or c in (' ', '-', '_')).strip()
+            safe_name = safe_name.replace(' ', '_')[:50]  # Limiter la longueur
+            timestamp = int(datetime.now().timestamp())
+            url_hash = hashlib.md5(image_url.encode()).hexdigest()[:8]
+            filename = f"{safe_name}_{timestamp}_{url_hash}{extension}"
+            
+            # Chemin complet du fichier
+            file_path = upload_dir / filename
+            
+            # Sauvegarder l'image
+            with open(file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            # Retourner le chemin relatif pour la base de données
+            return f"static/uploads/products/{filename}"
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Erreur lors du téléchargement de l'image {image_url}: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ Erreur lors de la sauvegarde de l'image: {e}")
+            return None
+
     def map_sheet_row_to_product(self, row: Dict) -> Dict:
         """
         Mappe une ligne Google Sheets vers un dict de produit
@@ -172,17 +232,63 @@ class GoogleSheetsService:
             Dictionnaire avec les champs mappés pour Product
         """
         product_data = {}
+        image_url_to_download = None
 
-        for sheet_col, db_field in self.COLUMN_MAPPING.items():
-            value = row.get(sheet_col)
+        # Build a normalized view of row headers for tolerant lookup
+        def _norm_header(s: str) -> str:
+            try:
+                s = (s or "").strip().lower()
+                # remove accents
+                s = ''.join(c for c in unicodedata.normalize('NFKD', s) if not unicodedata.combining(c))
+                # collapse whitespace
+                s = re.sub(r"\s+", " ", s)
+                return s
+            except Exception:
+                return str(s or '').strip().lower()
+
+        normalized_row = {}
+        try:
+            for k, v in (row or {}).items():
+                normalized_row[_norm_header(k)] = v
+        except Exception:
+            normalized_row = {}
+
+        # Precompute normalized mapping keys
+        normalized_mapping = { _norm_header(k): v for k, v in self.COLUMN_MAPPING.items() }
+
+        for sheet_col, db_field in normalized_mapping.items():
+            # tolerant value fetch: prefer normalized match, fallback to exact
+            value = normalized_row.get(sheet_col)
+            if value is None:
+                # try exact header key if present
+                original_key = next((orig for orig in self.COLUMN_MAPPING.keys() if _norm_header(orig) == sheet_col), None)
+                if original_key is not None:
+                    value = (row or {}).get(original_key)
 
             # Normalisation selon le type de champ
             if db_field in ['price', 'wholesale_price', 'purchase_price']:
                 product_data[db_field] = self._normalize_value(value, 'price')
             elif db_field == 'quantity':
                 product_data[db_field] = self._normalize_value(value, 'integer')
+            elif db_field == 'image_path':
+                # Stocker l'URL pour téléchargement après avoir le nom du produit
+                image_url_to_download = self._normalize_value(value, 'text')
+            elif db_field == 'imei_serial':
+                product_data[db_field] = self._normalize_value(value, 'text')
             else:
                 product_data[db_field] = self._normalize_value(value, 'text')
+        
+        # Télécharger l'image maintenant qu'on a le nom du produit
+        if image_url_to_download:
+            product_name = product_data.get('name', 'product')
+            downloaded_path = self._download_and_save_image(image_url_to_download, product_name)
+            product_data['image_path'] = downloaded_path
+        else:
+            product_data['image_path'] = None
+
+        # Nettoyer le code-barres (clé d'appariement) pour éviter les échecs liés aux espaces
+        if 'barcode' in product_data and isinstance(product_data['barcode'], str):
+            product_data['barcode'] = product_data['barcode'].strip()
 
         # Valeurs par défaut
         if 'quantity' not in product_data or product_data['quantity'] is None:
@@ -227,6 +333,12 @@ class GoogleSheetsService:
             rows = self.get_sheet_data(spreadsheet_id, worksheet_name)
             stats['total'] = len(rows)
 
+            # Précharger les catégories (name -> requires_variants)
+            try:
+                categories = {c.name: c.requires_variants for c in db.query(Category).all()}
+            except Exception:
+                categories = {}
+
             for idx, row in enumerate(rows, start=1):
                 try:
                     # Mappe la ligne vers un dict de produit
@@ -238,44 +350,135 @@ class GoogleSheetsService:
                         stats['skipped'] += 1
                         continue
 
-                    # Vérifie si le produit existe déjà (par code-barres ou nom)
-                    existing_product = None
-                    if product_data.get('barcode'):
-                        existing_product = db.query(Product).filter(
-                            Product.barcode == product_data['barcode']
-                        ).first()
+                    # Déterminer si cette ligne doit créer/mettre à jour un produit à variantes
+                    category_name = (product_data.get('category') or '').strip()
+                    requires_variants = bool(categories.get(category_name))
+                    has_imei = bool((product_data.get('imei_serial') or '').strip())
+                    has_barcode = bool((product_data.get('barcode') or '').strip())
 
-                    if existing_product:
-                        if update_existing:
-                            # Met à jour le produit existant
-                            for key, value in product_data.items():
-                                if value is not None and key != 'barcode':
-                                    setattr(existing_product, key, value)
+                    if (requires_variants or has_imei) and has_barcode and has_imei:
+                        # Mode variantes par code-barres produit partagé
+                        # 1) Trouver ou créer le produit parent via Product.barcode
+                        existing_product = db.query(Product).filter(Product.barcode == product_data['barcode']).first()
+                        if existing_product:
+                            # Mettre à jour quelques champs de base si demandé
+                            if update_existing:
+                                for key in ['name','description','price','wholesale_price','purchase_price','category','brand','model','condition','image_path','notes']:
+                                    val = product_data.get(key)
+                                    if val is not None and val != '':
+                                        setattr(existing_product, key, val)
+                            # Créer la variante si l'IMEI n'existe pas déjà
+                            imei = product_data.get('imei_serial')
+                            if imei:
+                                from app.database import ProductVariant
+                                already = db.query(ProductVariant).filter(ProductVariant.imei_serial == imei).first()
+                                if not already:
+                                    v = ProductVariant(
+                                        product_id=existing_product.product_id,
+                                        imei_serial=imei,
+                                        barcode=None,
+                                        condition=product_data.get('condition') or existing_product.condition
+                                    )
+                                    db.add(v)
+                                    # Incrémente le stock du produit parent
+                                    try:
+                                        existing_product.quantity = (existing_product.quantity or 0) + 1
+                                    except Exception:
+                                        pass
+                                    # Mouvement de stock IN unitaire
+                                    sm = StockMovement(
+                                        product_id=existing_product.product_id,
+                                        quantity=1,
+                                        movement_type='IN',
+                                        reference_type='GOOGLE_SHEETS_IMPORT',
+                                        notes=f"Import IMEI {imei} depuis Google Sheets",
+                                        unit_price=existing_product.purchase_price or Decimal('0.00')
+                                    )
+                                    db.add(sm)
                             db.commit()
                             stats['updated'] += 1
                         else:
-                            stats['skipped'] += 1
-                    else:
-                        # Crée un nouveau produit
-                        new_product = Product(**product_data)
-                        db.add(new_product)
-                        db.commit()
-                        db.refresh(new_product)
-
-                        # Crée un mouvement de stock IN si quantité > 0
-                        if new_product.quantity > 0:
-                            stock_movement = StockMovement(
-                                product_id=new_product.product_id,
-                                quantity=new_product.quantity,
+                            # Créer le produit parent avec le code-barres partagé
+                            from app.database import ProductVariant
+                            parent = Product(
+                                name=product_data.get('name'),
+                                description=product_data.get('description'),
+                                quantity=1,  # commence avec 1 variante
+                                price=product_data.get('price') or Decimal('0.00'),
+                                wholesale_price=product_data.get('wholesale_price'),
+                                purchase_price=product_data.get('purchase_price') or Decimal('0.00'),
+                                category=product_data.get('category'),
+                                brand=product_data.get('brand'),
+                                model=product_data.get('model'),
+                                barcode=product_data.get('barcode'),
+                                condition=product_data.get('condition') or 'neuf',
+                                has_unique_serial=True,
+                                entry_date=product_data.get('entry_date'),
+                                notes=product_data.get('notes'),
+                                image_path=product_data.get('image_path')
+                            )
+                            db.add(parent)
+                            db.flush()
+                            # Créer la première variante
+                            imei = product_data.get('imei_serial')
+                            var = ProductVariant(
+                                product_id=parent.product_id,
+                                imei_serial=imei,
+                                barcode=None,
+                                condition=parent.condition
+                            )
+                            db.add(var)
+                            # Mouvement de stock IN initial (1)
+                            sm = StockMovement(
+                                product_id=parent.product_id,
+                                quantity=1,
                                 movement_type='IN',
                                 reference_type='GOOGLE_SHEETS_IMPORT',
-                                notes=f'Import initial depuis Google Sheets',
-                                unit_price=new_product.purchase_price or Decimal('0.00')
+                                notes='Import initial variante depuis Google Sheets',
+                                unit_price=parent.purchase_price or Decimal('0.00')
                             )
-                            db.add(stock_movement)
+                            db.add(sm)
                             db.commit()
+                            stats['created'] += 1
+                    else:
+                        # Mode produit simple (pas de variante/IMEI)
+                        existing_product = None
+                        if product_data.get('barcode'):
+                            existing_product = db.query(Product).filter(
+                                Product.barcode == product_data['barcode']
+                            ).first()
 
-                        stats['created'] += 1
+                        if existing_product:
+                            if update_existing:
+                                # Met à jour le produit existant
+                                for key, value in product_data.items():
+                                    if value is not None and key != 'barcode':
+                                        setattr(existing_product, key, value)
+                                db.commit()
+                                stats['updated'] += 1
+                            else:
+                                stats['skipped'] += 1
+                        else:
+                            # Crée un nouveau produit
+                            new_product = Product(**{k: v for k, v in product_data.items() if k != 'imei_serial'})
+                            db.add(new_product)
+                            db.commit()
+                            db.refresh(new_product)
+
+                            # Crée un mouvement de stock IN si quantité > 0
+                            if new_product.quantity > 0:
+                                stock_movement = StockMovement(
+                                    product_id=new_product.product_id,
+                                    quantity=new_product.quantity,
+                                    movement_type='IN',
+                                    reference_type='GOOGLE_SHEETS_IMPORT',
+                                    notes=f'Import initial depuis Google Sheets',
+                                    unit_price=new_product.purchase_price or Decimal('0.00')
+                                )
+                                db.add(stock_movement)
+                                db.commit()
+
+                            stats['created'] += 1
 
                 except Exception as e:
                     stats['errors'] += 1

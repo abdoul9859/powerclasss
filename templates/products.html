@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Gestion des Produits - GEEK TECHNOLOGIE{% endblock %}
+{% block title %}Gestion des Produits - {{ _app_name }}{% endblock %}
 
 {% block content %}
 <div class="row">
@@ -126,9 +126,11 @@
             <table id="productsTable" class="table table-hover">
                 <thead>
                     <tr>
+                        <th style="width: 80px;">Image</th>
                         <th data-col="name">Nom</th>
                         <th data-col="category">Catégorie</th>
                         <th data-col="price">Prix</th>
+                        <th>Prix Gros</th>
                         <th data-col="stock">Stock</th>
                         <th data-col="barcode">Code-barres</th>
                         <th>Actions</th>
@@ -136,7 +138,7 @@
                 </thead>
                 <tbody id="productsTableBody">
                     <tr>
-                        <td colspan="6" class="text-center">
+                        <td colspan="8" class="text-center">
                             <div class="spinner-border" role="status">
                                 <span class="visually-hidden">Chargement...</span>
                             </div>
@@ -216,7 +218,7 @@
                     </div>
 
                     <div class="row">
-                        <div class="col-md-4">
+                        <div class="col-md-4 admin-only" style="display: none;">
                             <div class="mb-3">
                                 <label for="productPurchasePrice" class="form-label">Prix d'achat (FCFA)</label>
                                 <input type="number" class="form-control" id="productPurchasePrice" step="1" min="0" inputmode="numeric" pattern="[0-9]*">
@@ -384,6 +386,28 @@ window.__productsBoot = (async function(){
     // silencieux: le JS principal gérera les fallbacks
   }
 })();
+
+// Afficher les éléments admin-only si l'utilisateur est admin
+function showAdminElements() {
+    try {
+        if (window.authManager && window.authManager.isAdmin()) {
+            document.querySelectorAll('.admin-only').forEach(el => {
+                el.style.display = 'block';
+            });
+        }
+    } catch (e) {
+        console.error('Erreur lors de la vérification du rôle:', e);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Vérifier immédiatement
+    showAdminElements();
+    
+    // Revérifier après un court délai pour s'assurer que authManager.verifyAuth() est terminé
+    setTimeout(showAdminElements, 100);
+    setTimeout(showAdminElements, 500);
+});
 </script>
-<script src="/static/js/products.js?v={{ ASSET_VERSION }}"></script>
+<script src="/static/js/products.js?v={{ ASSET_VERSION() }}"></script>
 {% endblock %}

@@ -130,31 +130,47 @@ class GoogleSheetsValidator:
                 })
 
     def _check_duplicate_barcodes(self, data: List[Dict]):
-        """Détecte les code-barres en double"""
-        barcodes = {}
+        """Détecte les code-barres en double, mais accepte les doublons si chaque ligne a un IMEI unique."""
+        barcodes: dict[str, list[dict]] = {}
 
         for idx, row in enumerate(data, start=2):
             barcode_val = row.get('Code-barres produit', '')
             barcode = str(barcode_val).strip() if barcode_val is not None else ''
             nom = str(row.get('Nom du produit', '')).strip()[:50]
+            imei_val = row.get('IMEI', '')
+            imei = str(imei_val).strip() if imei_val is not None else ''
 
             if barcode:  # Ignore les lignes sans code-barres
                 if barcode not in barcodes:
                     barcodes[barcode] = []
                 barcodes[barcode].append({
                     'row': idx,
-                    'name': nom
+                    'name': nom,
+                    'imei': imei
                 })
 
         # Trouve les doublons
         for barcode, occurrences in barcodes.items():
             if len(occurrences) > 1:
-                self.issues['duplicate_barcodes'][barcode] = {
-                    'count': len(occurrences),
-                    'occurrences': occurrences,
-                    'message': f'Code-barres {barcode} apparaît {len(occurrences)} fois',
-                    'impact': 'Seule la première occurrence sera mise à jour lors de la synchronisation'
-                }
+                imeis = [o.get('imei', '') for o in occurrences]
+                has_any_empty_imei = any(not (i or '').strip() for i in imeis)
+                unique_imeis = len(set([i for i in imeis if (i or '').strip()]))
+                total_with_imei = len([i for i in imeis if (i or '').strip()])
+
+                if not has_any_empty_imei and unique_imeis == total_with_imei:
+                    # Acceptable groupe: même code-barres, IMEIs tous présents et uniques
+                    self.issues['warnings'].append({
+                        'barcode': barcode,
+                        'message': f'Code-barres {barcode} partagé par {len(occurrences)} lignes (IMEI uniques) — sera groupé en un seul produit avec variantes.'
+                    })
+                else:
+                    # Problème: IMEI manquants ou en double pour le même code-barres
+                    self.issues['duplicate_barcodes'][barcode] = {
+                        'count': len(occurrences),
+                        'occurrences': [{'row': o['row'], 'name': o['name'], 'imei': o.get('imei') or 'N/A'} for o in occurrences],
+                        'message': f'Code-barres {barcode} apparaît {len(occurrences)} fois avec IMEI manquants ou en double',
+                        'impact': 'Ces lignes doivent avoir des IMEI uniques ou être fusionnées.'
+                    }
 
     def _check_invalid_prices(self, data: List[Dict]):
         """Détecte les prix invalides ou manquants"""

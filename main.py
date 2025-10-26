@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import joinedload
 import uvicorn
@@ -15,12 +16,38 @@ from datetime import date, datetime
 load_dotenv()
 
 # Version d'assets pour bust de cache (commit SHA si fourni par la plateforme, sinon variable ou timestamp)
-ASSET_VERSION = (
-    os.getenv("GIT_COMMIT_SHA")
-    or os.getenv("KOYEB_COMMIT_SHA")
-    or os.getenv("ASSET_VERSION")
-    or str(int(datetime.now().timestamp()))
-)[:12]
+def get_asset_version():
+    """Génère une version basée sur le timestamp de modification des fichiers statiques"""
+    # En production, utiliser le commit SHA si disponible
+    commit_sha = os.getenv("GIT_COMMIT_SHA") or os.getenv("KOYEB_COMMIT_SHA") or os.getenv("ASSET_VERSION")
+    if commit_sha:
+        return commit_sha[:12]
+    
+    # En développement, utiliser le timestamp de modification le plus récent parmi static/js, static/css et templates
+    try:
+        latest_mtime = 0
+        for rel, exts in [(os.path.join("static", "js"), (".js",)),
+                          (os.path.join("static", "css"), (".css",)),
+                          ("templates", (".html",))]:
+            if os.path.exists(rel):
+                for fn in os.listdir(rel):
+                    if fn.endswith(exts):
+                        fp = os.path.join(rel, fn)
+                        try:
+                            m = os.path.getmtime(fp)
+                            if m > latest_mtime:
+                                latest_mtime = m
+                        except Exception:
+                            pass
+        if latest_mtime > 0:
+            return str(int(latest_mtime))
+    except Exception:
+        pass
+    
+    # Fallback: timestamp actuel
+    return str(int(datetime.now().timestamp()))
+
+ASSET_VERSION = get_asset_version()
 
 # Imports de l'application
 from app.database import get_db
@@ -41,6 +68,24 @@ app = FastAPI(
     title="GEEK TECHNOLOGIE - Gestion de Stock",
     description="Application de gestion de stock et facturation avec FastAPI et Bootstrap",
     version="1.0.0"
+)
+
+# Configuration CORS pour la boutique en ligne (domaine séparé)
+# Ajouter votre domaine de boutique dans STORE_DOMAIN
+STORE_DOMAIN = os.getenv("STORE_DOMAIN", "http://localhost:3000")
+ALLOWED_ORIGINS = [
+    STORE_DOMAIN,
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "https://boutique.votredomaine.com",  # Remplacer par votre domaine
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # (Optionnel) Middleware proxy enlevé pour compatibilité starlette; la baseURL côté frontend force déjà HTTPS
@@ -99,8 +144,8 @@ async def shutdown_event():
 
 # Configuration des templates et fichiers statiques
 templates = Jinja2Templates(directory="templates")
-# Exposer une variable globale de version pour le cache-busting des assets
-templates.env.globals["ASSET_VERSION"] = ASSET_VERSION
+# Exposer une fonction globale de version pour le cache-busting des assets (dynamique)
+templates.env.globals["ASSET_VERSION"] = get_asset_version
 
 # ---- Jinja filters ----
 def _format_number(value) -> str:
@@ -162,7 +207,7 @@ def _normalize_logo(logo_value: str | None) -> str | None:
         return logo_value
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Inclure les routers API
+# Inclure les routers API de l'application de gestion
 app.include_router(auth.router)
 app.include_router(products.router)
 app.include_router(clients.router)
@@ -185,6 +230,20 @@ app.include_router(daily_requests.router)
 app.include_router(daily_sales.router)
 app.include_router(google_sheets.router)
 
+# Inclure les routers API de la boutique en ligne (API publique)
+from boutique.backend.routers import (
+    products_router,
+    customers_router,
+    cart_router,
+    orders_router,
+    payments_router
+)
+app.include_router(products_router)
+app.include_router(customers_router)
+app.include_router(cart_router)
+app.include_router(orders_router)
+app.include_router(payments_router)
+
 # Route pour le favicon
 @app.get("/favicon.ico")
 async def favicon():
@@ -199,6 +258,11 @@ async def api_status():
         "version": "1.0.0",
         "framework": "FastAPI"
     }
+
+# Endpoint de version pour live-reload
+@app.get("/__live/version")
+async def live_version():
+    return {"v": get_asset_version()}
 
 # Routes pour l'interface web
 # Page d'accueil: Dashboard classique avec barre de navigation

@@ -450,6 +450,7 @@ async def list_products_paginated(
                 Product.has_unique_serial,
                 Product.entry_date,
                 Product.notes,
+                Product.image_path,
                 Product.created_at,
             )
         )
@@ -675,19 +676,11 @@ async def create_product(
         # Validation selon la règle métier des mémoires
         has_variants = len(product_data.variants) > 0
         
-        # Normaliser le code-barres produit
+        # Normaliser le code-barres produit (autorisé même si variantes, il sert de code partagé)
         normalized_barcode = None
         if product_data.barcode is not None:
             bc = (product_data.barcode or "").strip()
             normalized_barcode = bc or None
-        if has_variants:
-            normalized_barcode = None
-        
-        if has_variants and normalized_barcode:
-            raise HTTPException(
-                status_code=400,
-                detail="Un produit avec variantes ne peut pas avoir de code-barres. Les codes-barres sont gérés au niveau des variantes individuelles."
-            )
         
         # Vérifier l'unicité du code-barres produit (global: produits + variantes)
         if normalized_barcode:

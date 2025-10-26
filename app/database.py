@@ -674,3 +674,17 @@ def get_db():
                 db.rollback()
             except Exception:
                 pass
+
+
+# ==================== MODÈLES BOUTIQUE EN LIGNE ====================
+# Importer les modèles de la boutique pour créer les tables
+try:
+    from boutique.backend.models import (
+        StoreCustomer,
+        StoreOrder,
+        StoreOrderItem,
+        StorePayment
+    )
+except ImportError:
+    # Si les modèles de la boutique ne sont pas encore disponibles
+    pass

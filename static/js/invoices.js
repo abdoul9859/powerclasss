@@ -86,6 +86,15 @@ document.addEventListener('DOMContentLoaded', function() {
         return hasAuthManager && (window.authManager.isAuthenticatedSync() || hasUser);
     };
 
+    // Masquer la carte "Chiffre d'Affaires" pour les non-admin
+    try {
+        if (window.authManager && !window.authManager.isAdmin()) {
+            const revenueEl = document.getElementById('totalRevenue');
+            const revenueCardCol = revenueEl ? revenueEl.closest('.col-md-3') : null;
+            if (revenueCardCol) revenueCardCol.style.display = 'none';
+        }
+    } catch (e) { /* ignore */ }
+
     // Initialiser immédiatement sans délai pour un chargement instantané
     loadInvoices();
     try { loadStats(); } catch(e){}
@@ -268,7 +277,10 @@ function setupEventListeners() {
                             <div class="text-muted small">${[p.barcode ? 'Code: '+escapeHtml(p.barcode) : '', sub ? escapeHtml(sub) : ''].filter(Boolean).join(' • ')}</div>
                         </div>
                     </div>
-                    <div class="text-nowrap ms-3">${formatCurrency(p.price)}</div>
+                    <div class="text-nowrap ms-3">
+                        <div class="fw-semibold">${formatCurrency(p.price)}</div>
+                        ${p.wholesale_price ? `<div class="text-muted small">Gros: ${formatCurrency(p.wholesale_price)}</div>` : ''}
+                    </div>
                 </div>`;
             }).join('');
             suggestBox.classList.remove('d-none');

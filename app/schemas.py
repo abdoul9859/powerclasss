@@ -673,6 +673,7 @@ class DailySaleResponse(BaseModel):
     sale_date: date
     payment_method: str
     invoice_id: Optional[int]
+    invoice_status: Optional[str] = None
     notes: Optional[str]
     created_at: datetime
 
