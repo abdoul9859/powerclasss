@@ -52,11 +52,42 @@ async def get_daily_sales(
     if payment_method:
         query = query.filter(DailySale.payment_method == payment_method)
     
+    # Restreindre les ventes liées à des factures impayées pour les non-admins
+    try:
+        role = getattr(current_user, "role", "user")
+    except Exception:
+        role = "user"
+    if role != "admin":
+        # Joindre les factures et ne garder que les ventes directes ou factures payées
+        query = query.outerjoin(Invoice, DailySale.invoice_id == Invoice.invoice_id)
+        query = query.filter(
+            or_(
+                DailySale.invoice_id.is_(None),
+                Invoice.status.in_(["payée", "PAID", "partiellement payée"])  # inclure partiellement payée
+            )
+        )
+
     # Tri par date de vente décroissante
     query = query.order_by(desc(DailySale.sale_date), desc(DailySale.created_at))
     
     # Pagination
     sales = query.offset(skip).limit(limit).all()
+
+    # Attacher le statut de paiement des factures liées
+    try:
+        inv_ids = [int(s.invoice_id) for s in sales if getattr(s, 'invoice_id', None)]
+        if inv_ids:
+            rows = db.query(Invoice.invoice_id, Invoice.status).filter(Invoice.invoice_id.in_(inv_ids)).all()
+            st = {int(r[0]): r[1] for r in rows}
+            for s in sales:
+                try:
+                    if s.invoice_id:
+                        setattr(s, 'invoice_status', st.get(int(s.invoice_id)))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     return sales
 
 @router.get("/{sale_id}", response_model=DailySaleResponse)
@@ -275,8 +306,32 @@ async def get_sales_summary(
     if end_date:
         query = query.filter(DailySale.sale_date <= end_date)
     
+    # Exclure les ventes liées à des factures impayées pour les non-admins
+    try:
+        role = getattr(current_user, "role", "user")
+    except Exception:
+        role = "user"
+    if role != "admin":
+        query = query.outerjoin(Invoice, DailySale.invoice_id == Invoice.invoice_id)
+        query = query.filter(
+            or_(
+                DailySale.invoice_id.is_(None),
+                Invoice.status.in_(["payée", "PAID", "partiellement payée"])  # inclure partiellement payée
+            )
+        )
+
     # Statistiques générales
-    total_sales = query.count()
+    # Compter chaque facture une seule fois (distinct invoice_id) + ventes directes
+    direct_sales = query.filter(DailySale.invoice_id.is_(None)).count()
+    invoice_sales_distinct = (
+        db.query(func.count(func.distinct(DailySale.invoice_id)))
+        .select_from(DailySale)
+        .filter(DailySale.sale_id.in_([s.sale_id for s in query.all()]))
+        .filter(DailySale.invoice_id.isnot(None))
+        .scalar()
+        or 0
+    )
+    total_sales = int(direct_sales) + int(invoice_sales_distinct)
     total_amount = db.query(func.sum(DailySale.total_amount)).filter(
         DailySale.sale_id.in_([s.sale_id for s in query.all()])
     ).scalar() or 0
@@ -291,13 +346,21 @@ async def get_sales_summary(
     ).group_by(DailySale.payment_method).all()
     
     # Ventes liées à des factures vs ventes directes
-    invoice_sales = query.filter(DailySale.invoice_id.isnot(None)).count()
-    direct_sales = query.filter(DailySale.invoice_id.is_(None)).count()
+    invoice_sales = int(invoice_sales_distinct)
     
+    # Restreindre 'vente moyenne' pour les non-admins
+    try:
+        role = getattr(current_user, "role", "user")
+    except Exception:
+        role = "user"
+    avg_sale = float(total_amount / total_sales) if total_sales > 0 else 0
+    if role != "admin":
+        avg_sale = 0.0
+
     return {
         "total_sales": total_sales,
         "total_amount": float(total_amount),
-        "average_sale": float(total_amount / total_sales) if total_sales > 0 else 0,
+        "average_sale": avg_sale,
         "payment_methods": [
             {
                 "method": pm.payment_method,

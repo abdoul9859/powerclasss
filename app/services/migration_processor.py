@@ -7,6 +7,9 @@ from typing import Dict, List, Any, Optional
 from sqlalchemy.orm import Session
 import threading
 import time
+import requests
+import hashlib
+import os
 
 from ..database import get_db, Migration, MigrationLog, Product, Client, Supplier
 from ..routers.cache import set_cache_item
@@ -412,6 +415,12 @@ class MigrationProcessor:
             barcode = self._get_value(row_data, ['barcode', 'code_barre', 'code-barres', 'ean', 'sku'])
             condition = self._get_value(row_data, ['condition', 'etat', 'state'])
             notes = self._get_value(row_data, ['notes', 'commentaires', 'remarques'])
+            image_url = self._get_value(row_data, ['image_path', 'image', 'photo', 'picture', 'img', 'image_url', 'url_image'])
+            
+            # Si une URL d'image est fournie, la télécharger
+            image_path = None
+            if image_url:
+                image_path = self._download_and_save_image(image_url, name)
             
             # Détecter si c'est un produit avec variantes
             # Chercher des colonnes de variantes (IMEI, série, etc.)
@@ -437,13 +446,13 @@ class MigrationProcessor:
                 # Produit avec variantes
                 return self._import_product_with_variants(
                     db, name, description, price, purchase_price, category, brand, model, 
-                    condition, notes, imei_serial, variant_barcode, variant_condition
+                    condition, notes, imei_serial, variant_barcode, variant_condition, image_path
                 )
             else:
                 # Produit sans variantes
                 return self._import_simple_product(
                     db, name, description, price, purchase_price, quantity, category, 
-                    brand, model, barcode, condition, notes
+                    brand, model, barcode, condition, notes, image_path
                 )
             
         except Exception as e:
@@ -451,7 +460,7 @@ class MigrationProcessor:
     
     def _import_simple_product(self, db: Session, name: str, description: str, price: float, 
                               purchase_price: float, quantity: int, category: str, brand: str, 
-                              model: str, barcode: str, condition: str, notes: str) -> bool:
+                              model: str, barcode: str, condition: str, notes: str, image_path: str = None) -> bool:
         """Importe un produit simple sans variantes"""
         try:
             from decimal import Decimal
@@ -471,7 +480,8 @@ class MigrationProcessor:
                 condition=condition.lower(),
                 has_unique_serial=False,
                 entry_date=datetime.now(),
-                notes=notes or ""
+                notes=notes or "",
+                image_path=image_path if image_path else None
             )
             
             db.add(product)
@@ -500,7 +510,7 @@ class MigrationProcessor:
     def _import_product_with_variants(self, db: Session, name: str, description: str, price: float, 
                                      purchase_price: float, category: str, brand: str, model: str, 
                                      condition: str, notes: str, imei_serial: str, variant_barcode: str, 
-                                     variant_condition: str) -> bool:
+                                     variant_condition: str, image_path: str = None) -> bool:
         """Importe un produit avec variantes"""
         try:
             from decimal import Decimal
@@ -520,7 +530,8 @@ class MigrationProcessor:
                 condition=condition.lower(),
                 has_unique_serial=True,  # Produit avec variantes
                 entry_date=datetime.now(),
-                notes=notes or ""
+                notes=notes or "",
+                image_path=image_path if image_path else None
             )
             
             db.add(product)
@@ -595,6 +606,60 @@ class MigrationProcessor:
                         except (ValueError, TypeError):
                             pass
         return 0.0
+    
+    def _download_and_save_image(self, image_url: str, product_name: str) -> Optional[str]:
+        """Télécharge une image depuis une URL et la sauvegarde localement"""
+        try:
+            # Vérifier si c'est une URL valide
+            if not image_url.startswith(('http://', 'https://')):
+                # Si ce n'est pas une URL, considérer que c'est déjà un chemin local
+                return image_url
+            
+            # Créer le dossier de destination s'il n'existe pas
+            upload_dir = Path("static/uploads/products")
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Télécharger l'image
+            response = requests.get(image_url, timeout=10, stream=True)
+            response.raise_for_status()
+            
+            # Déterminer l'extension du fichier
+            content_type = response.headers.get('content-type', '')
+            extension = '.jpg'  # Par défaut
+            if 'png' in content_type:
+                extension = '.png'
+            elif 'jpeg' in content_type or 'jpg' in content_type:
+                extension = '.jpg'
+            elif 'webp' in content_type:
+                extension = '.webp'
+            elif 'gif' in content_type:
+                extension = '.gif'
+            
+            # Générer un nom de fichier unique basé sur le nom du produit et un hash
+            safe_name = "".join(c for c in product_name if c.isalnum() or c in (' ', '-', '_')).strip()
+            safe_name = safe_name.replace(' ', '_')[:50]  # Limiter la longueur
+            timestamp = int(datetime.now().timestamp())
+            url_hash = hashlib.md5(image_url.encode()).hexdigest()[:8]
+            filename = f"{safe_name}_{timestamp}_{url_hash}{extension}"
+            
+            # Chemin complet du fichier
+            file_path = upload_dir / filename
+            
+            # Sauvegarder l'image
+            with open(file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            # Retourner le chemin relatif pour la base de données
+            return f"static/uploads/products/{filename}"
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Erreur lors du téléchargement de l'image {image_url}: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ Erreur lors de la sauvegarde de l'image: {e}")
+            return None
     
     def _get_int_value(self, row_data: dict, possible_keys: list) -> int:
         """Récupère une valeur int en testant plusieurs clés possibles"""

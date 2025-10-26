@@ -226,6 +226,14 @@ async def list_quotations_paginated(
     # Calcul du total via la même base filtrée, sans produit cartésien
     total_value = agg_base.with_entities(func.coalesce(func.sum(Quotation.total), 0)).scalar() or 0
 
+    # Restreindre l'exposition de la valeur agrégée aux administrateurs uniquement
+    try:
+        role = getattr(current_user, "role", "user")
+    except Exception:
+        role = "user"
+    if role != "admin":
+        total_value = 0
+
     # Tri
     key = (sort_by or 'date').lower()
     desc_dir = (sort_dir or 'desc').lower() == 'desc'

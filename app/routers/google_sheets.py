@@ -9,6 +9,7 @@ from app.database import get_db, User
 from app.auth import get_current_user
 from app.services.google_sheets_service import GoogleSheetsService
 from app.services.google_sheets_validator import GoogleSheetsValidator
+from app.services.google_sheets_auto_sync import auto_sync_service
 import os
 
 
@@ -44,6 +45,12 @@ class GoogleSheetsSettingsResponse(BaseModel):
     spreadsheet_id: Optional[str] = None
     worksheet_name: Optional[str] = None
     last_sync: Optional[str] = None
+
+# Configuration optionnelle pour démarrer l'auto-sync avec la même feuille que le formulaire
+class AutoSyncConfig(BaseModel):
+    spreadsheet_id: Optional[str] = None
+    worksheet_name: Optional[str] = None
+    sync_interval_minutes: Optional[int] = None
 
 
 @router.post("/sync", response_model=GoogleSheetsSyncResponse)
@@ -301,5 +308,146 @@ async def validate_google_sheet(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erreur lors de la validation: {str(e)}"
+        )
+
+
+@router.post("/auto-sync/start")
+async def start_auto_sync(
+    config: AutoSyncConfig = None,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Démarre la synchronisation automatique depuis Google Sheets
+    
+    La synchronisation s'effectuera automatiquement toutes les X minutes
+    (défini par GOOGLE_SHEETS_SYNC_INTERVAL, par défaut 10 minutes)
+    """
+    # Vérification des permissions
+    if current_user.role not in ['admin', 'manager']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès refusé"
+        )
+    
+    try:
+        # Optionally override configuration from request
+        if config is not None:
+            if config.spreadsheet_id:
+                os.environ['GOOGLE_SHEETS_SPREADSHEET_ID'] = config.spreadsheet_id
+            if config.worksheet_name:
+                os.environ['GOOGLE_SHEETS_WORKSHEET_NAME'] = config.worksheet_name
+            if config.sync_interval_minutes and config.sync_interval_minutes > 0:
+                auto_sync_service.sync_interval_minutes = int(config.sync_interval_minutes)
+
+        success = auto_sync_service.start()
+        
+        if success:
+            return {
+                'success': True,
+                'message': f'Synchronisation automatique démarrée (intervalle: {auto_sync_service.sync_interval_minutes} minutes)',
+                'status': auto_sync_service.get_status()
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Impossible de démarrer la synchronisation automatique. Vérifiez la configuration."
+            )
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors du démarrage: {str(e)}"
+        )
+
+
+@router.post("/auto-sync/stop")
+async def stop_auto_sync(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Arrête la synchronisation automatique
+    """
+    # Vérification des permissions
+    if current_user.role not in ['admin', 'manager']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès refusé"
+        )
+    
+    try:
+        success = auto_sync_service.stop()
+        
+        if success:
+            return {
+                'success': True,
+                'message': 'Synchronisation automatique arrêtée'
+            }
+        else:
+            return {
+                'success': False,
+                'message': 'La synchronisation automatique n\'était pas en cours'
+            }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors de l'arrêt: {str(e)}"
+        )
+
+
+@router.get("/auto-sync/status")
+async def get_auto_sync_status(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Récupère le statut de la synchronisation automatique
+    """
+    try:
+        status = auto_sync_service.get_status()
+        return {
+            'success': True,
+            'status': status
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors de la récupération du statut: {str(e)}"
+        )
+
+
+@router.post("/auto-sync/trigger")
+async def trigger_sync_now(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Déclenche une synchronisation immédiate (sans attendre l'intervalle)
+    """
+    # Vérification des permissions
+    if current_user.role not in ['admin', 'manager']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès refusé"
+        )
+    
+    try:
+        success = auto_sync_service.trigger_sync_now()
+        
+        if success:
+            return {
+                'success': True,
+                'message': 'Synchronisation déclenchée avec succès',
+                'stats': auto_sync_service.last_sync_stats
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La synchronisation automatique n'est pas démarrée"
+            )
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors de la synchronisation: {str(e)}"
         )
 

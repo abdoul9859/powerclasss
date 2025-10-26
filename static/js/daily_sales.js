@@ -14,6 +14,15 @@ class DailySalesManager {
     }
 
     init() {
+        // Masquer la carte "Vente Moyenne" pour les non-admin
+        try {
+            if (window.authManager && !window.authManager.isAdmin()) {
+                const avgEl = document.getElementById('averageSale');
+                const avgCardCol = avgEl ? avgEl.closest('.col-md-3') : null;
+                if (avgCardCol) avgCardCol.style.display = 'none';
+            }
+        } catch (e) { /* ignore */ }
+
         this.setupEventListeners();
         this.setDefaultDate();
         this.updateDateDisplay();
@@ -141,6 +150,22 @@ class DailySalesManager {
                 document.getElementById('productDropdown').style.display = 'none';
             }
         });
+    }
+
+    getInvoiceStatusBadge(status) {
+        const s = String(status || '').toLowerCase();
+        if (!s) return '-';
+        const map = {
+            'payée': ['bg-success','Payée'],
+            'paid': ['bg-success','Payée'],
+            'partiellement payée': ['bg-warning text-dark','Partielle'],
+            'overdue': ['bg-danger','En retard'],
+            'en attente': ['bg-secondary','En attente'],
+            'sent': ['bg-secondary','Envoyée'],
+            'draft': ['bg-secondary','Brouillon']
+        };
+        const conf = map[s] || ['bg-secondary', status];
+        return `<span class="badge ${conf[0]}">${conf[1]}</span>`;
     }
 
     setDefaultDate() {
@@ -441,7 +466,7 @@ class DailySalesManager {
             
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="9" class="text-center text-muted py-4">
+                    <td colspan="10" class="text-center text-muted py-4">
                         <i class="bi bi-inbox me-2"></i>${message}
                     </td>
                 </tr>
@@ -449,7 +474,28 @@ class DailySalesManager {
             return;
         }
 
+        // Grouper par invoice_id pour éviter les doublons d'affichage de la même facture
+        const grouped = [];
+        const byInvoice = new Map();
         sales.forEach(sale => {
+            if (sale.invoice_id) {
+                const key = String(sale.invoice_id);
+                if (!byInvoice.has(key)) {
+                    byInvoice.set(key, { ...sale });
+                } else {
+                    const agg = byInvoice.get(key);
+                    agg.quantity = (Number(agg.quantity)||0) + (Number(sale.quantity)||0);
+                    agg.total_amount = (Number(agg.total_amount)||0) + (Number(sale.total_amount)||0);
+                    byInvoice.set(key, agg);
+                }
+            } else {
+                grouped.push(sale);
+            }
+        });
+        byInvoice.forEach(v => grouped.push(v));
+        const rows = grouped;
+
+        rows.forEach(sale => {
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${this.formatDate(sale.sale_date)}</td>
@@ -459,6 +505,7 @@ class DailySalesManager {
                 <td>${this.formatCurrency(sale.unit_price)}</td>
                 <td>${this.formatCurrency(sale.total_amount)}</td>
                 <td>${this.getPaymentMethodBadge(sale.payment_method)}</td>
+                <td>${this.getInvoiceStatusBadge(sale.invoice_status)}</td>
                 <td>${sale.invoice_id ? `<a href="/invoices/print/${sale.invoice_id}" target="_blank" class="btn btn-sm btn-outline-primary">#${sale.invoice_id}</a>` : '-'}</td>
                 <td>
                     <div class="btn-group btn-group-sm">

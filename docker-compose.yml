@@ -2,35 +2,14 @@
 # Note: 'version' is obsolete in recent Docker Compose versions
 
 services:
-  db:
-    image: postgres:15-alpine
-    container_name: powerclasss_db
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123
-      POSTGRES_DB: powerclasss_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - db_data:/var/lib/postgresql/data
-      - ./backups:/backups
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
 
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: powerclasss_app
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://postgres:123@db:5432/powerclasss_db
+      DATABASE_URL: sqlite:////app/data/app.db
       DB_SSLMODE: disable
       HOST: 0.0.0.0
       PORT: "8000"
@@ -48,12 +27,10 @@ services:
       - ./static/uploads:/app/static/uploads
       - ./logs:/app/logs
       - ./credentials:/app/credentials:ro
+      - ./data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-volumes:
-  db_data:

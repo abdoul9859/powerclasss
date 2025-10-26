@@ -1076,6 +1076,18 @@ async def get_invoice_stats(
         # Comptages par statut (support FR/EN)
         pending_invoices = db.query(Invoice).filter(Invoice.status.in_(["en attente", "SENT", "DRAFT", "OVERDUE", "partiellement payée"]) ).count()
         paid_invoices = db.query(Invoice).filter(Invoice.status.in_(["payée", "PAID"]) ).count()
+
+        # Si l'utilisateur n'est pas admin, ne pas exposer les chiffres d'affaires
+        try:
+            role = getattr(current_user, "role", "user")
+        except Exception:
+            role = "user"
+        if role != "admin":
+            return {
+                "total_invoices": total_invoices,
+                "pending_invoices": pending_invoices,
+                "paid_invoices": paid_invoices,
+            }
         
         # Chiffre d'affaires brut du mois
         monthly_revenue_gross = db.query(func.sum(Invoice.total)).filter(
@@ -1116,7 +1128,7 @@ async def get_invoice_stats(
         # Montant impayé (restant)
         unpaid_amount = db.query(func.sum(Invoice.remaining_amount)).filter(Invoice.status.in_(["en attente", "partiellement payée", "OVERDUE"])) .scalar() or 0
         
-        # Toujours recalculer à la demande pour refléter immédiatement les derniers changements
+        # Toujours recalculer à la demande pour refléter immédiatement les derniers changements (admin uniquement)
         try:
             from ..services.stats_manager import recompute_invoices_stats
             return recompute_invoices_stats(db)

@@ -528,7 +528,7 @@ function displayProducts(products) {
     const tbody = document.getElementById('productsTableBody');
     
     if (products.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Aucun produit trouvé</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">Aucun produit trouvé</td></tr>';
         return;
     }
     
@@ -574,21 +574,26 @@ function displayProducts(products) {
         html += `
             <tr>
                 <td>
-                    <div class="d-flex align-items-center gap-2">
-                        ${product.image_path ? `
-                            <img src="/${product.image_path}" alt="${product.name}"
-                                 style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;">
-                        ` : ''}
-                        <div>
-                            <strong>${product.name}</strong> ${condBadge}
-                            ${product.brand ? `<br><small class="text-muted">${product.brand} ${product.model || ''}</small>` : ''}
+                    ${product.image_path ? `
+                        <img src="/${product.image_path}" alt="${escapeHtml(product.name)}"
+                             style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd;">
+                    ` : `
+                        <div style="width: 60px; height: 60px; background: #f0f0f0; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                            <i class="bi bi-image text-muted"></i>
                         </div>
+                    `}
+                </td>
+                <td>
+                    <div>
+                        <strong>${escapeHtml(product.name)}</strong> ${condBadge}
+                        ${product.brand ? `<br><small class="text-muted">${escapeHtml(product.brand)} ${escapeHtml(product.model || '')}</small>` : ''}
                     </div>
                 </td>
                 <td>
-                    ${product.category ? `<span class="badge bg-secondary">${product.category}</span>` : '-'}
+                    ${product.category ? `<span class="badge bg-secondary">${escapeHtml(product.category)}</span>` : '-'}
                 </td>
                 <td>${formatCurrency(product.price)}</td>
+                <td>${product.wholesale_price ? formatCurrency(product.wholesale_price) : '<span class="text-muted">-</span>'}</td>
                 <td>
                     <span class="badge ${stockBadgeClass}">${stockDisplay}</span>
                     ${conditionBadges}
@@ -1438,7 +1443,7 @@ async function viewProduct(productId) {
                         <tr><td><strong>Modèle:</strong></td><td>${product.model || '-'}</td></tr>
                         <tr><td><strong>Prix unitaire:</strong></td><td>${formatCurrency(product.price)}</td></tr>
                         <tr><td><strong>Prix en gros:</strong></td><td>${product.wholesale_price ? formatCurrency(product.wholesale_price) : '-'}</td></tr>
-                        <tr><td><strong>Prix d'achat:</strong></td><td>${formatCurrency(product.purchase_price)}</td></tr>
+                        ${window.authManager && window.authManager.isAdmin() ? `<tr><td><strong>Prix d'achat:</strong></td><td>${formatCurrency(product.purchase_price)}</td></tr>` : ''}
                         <tr><td><strong>État:</strong></td><td>${product.condition || '-'}</td></tr>
                         <tr><td><strong>Stock:</strong></td><td>${product.quantity} unités</td></tr>
                         <tr><td><strong>Code-barres:</strong></td><td>${product.barcode || '-'}</td></tr>
