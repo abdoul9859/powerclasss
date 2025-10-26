@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script de démarrage pour l'application GEEK TECHNOLOGIE
+Script de démarrage pour l'application POWERCLASSS
 """
 
 import uvicorn
@@ -14,7 +14,7 @@ sys.path.insert(0, str(root_dir))
 
 def main():
     """Démarrer l'application FastAPI"""
-    print("🚀 Démarrage de GEEK TECHNOLOGIE - Gestion de Stock")
+    print("🚀 Démarrage de POWERCLASSS - Gestion de Stock")
     print("=" * 50)
     
     # Configuration
@@ -25,7 +25,7 @@ def main():
     
     print(f"📍 Serveur: http://{host}:{port}")
     print(f"🔄 Rechargement automatique: {'Activé' if reload else 'Désactivé'}")
-    print(f"🗄️  Base de données: SQLite (geek_technologie.db)")
+    print(f"🗄️  Base de données: SQLite (app.db)")
     print("=" * 50)
     print("💡 Comptes par défaut:")
     print("   - Admin: admin / admin123")
