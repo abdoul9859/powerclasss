@@ -244,10 +244,10 @@
                                     <i class="bi bi-tag me-1"></i>
                                     Type de dette
                                 </label>
-                                <div class="form-control bg-light" style="pointer-events:none;">
-                                    Dette fournisseur
-                                </div>
-                                <input type="hidden" id="debtType" value="supplier" />
+                                <select class="form-select" id="debtType">
+                                    <option value="client">Créance client</option>
+                                    <option value="supplier">Dette fournisseur</option>
+                                </select>
                             </div>
                             <div class="col-md-6">
                                 <label for="reference" class="form-label">
@@ -265,9 +265,48 @@
                                     <i class="bi bi-person me-1"></i>
                                     <span id="entityLabel">Client/Fournisseur</span> <span class="text-danger">*</span>
                                 </label>
-                                <select class="form-select" id="entitySelect" required>
-                                    <option value="">Sélectionner...</option>
-                                </select>
+                                <div class="d-flex gap-2">
+                                    <div class="position-relative flex-grow-1">
+                                        <input 
+                                            type="text" 
+                                            class="form-control" 
+                                            id="entitySelect" 
+                                            placeholder="Rechercher un client..."
+                                            autocomplete="off"
+                                            required
+                                        >
+                                        <ul class="dropdown-menu w-100 shadow" id="entityDropdown" style="max-height: 200px; overflow-y: auto; display: none;"></ul>
+                                    </div>
+                                    <button type="button" class="btn btn-outline-primary" id="newClientBtn" onclick="toggleNewClient()" title="Nouveau client">
+                                        <i class="bi bi-person-plus"></i>
+                                    </button>
+                                </div>
+                                <div id="newClientSection" class="mt-2" style="display:none;">
+                                    <div class="card border-0 bg-light">
+                                        <div class="card-body pt-3 pb-2">
+                                            <div class="row g-2">
+                                                <div class="col-12">
+                                                    <label class="form-label mb-1">Nom du client <span class="text-danger">*</span></label>
+                                                    <input type="text" class="form-control" id="newClientName" placeholder="Nom du client">
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label mb-1">Téléphone</label>
+                                                    <input type="text" class="form-control" id="newClientPhone" placeholder="Ex: 770000000">
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label mb-1">Email</label>
+                                                    <input type="email" class="form-control" id="newClientEmail" placeholder="email@exemple.com">
+                                                </div>
+                                            </div>
+                                            <div class="mt-2 d-flex gap-2">
+                                                <button type="button" class="btn btn-sm btn-success" onclick="quickAddClient()">
+                                                    <i class="bi bi-check2-circle me-1"></i>Enregistrer le client
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleNewClient(false)">Annuler</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                             <div class="col-md-6">
                                 <label for="amount" class="form-label">
@@ -315,6 +354,38 @@
                             </label>
                             <textarea class="form-control" id="notes" rows="2" 
                                       placeholder="Notes additionnelles"></textarea>
+                        </div>
+
+                        <div id="initialPaymentSection" class="border-top pt-3" style="display:none;">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="form-label mb-0"><i class="bi bi-cash-coin me-1"></i>Paiement initial (optionnel)</label>
+                                <small class="text-muted">Disponible pour une créance client</small>
+                            </div>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label">Montant</label>
+                                    <input type="number" class="form-control" id="initPaymentAmount" min="0" step="1" placeholder="0">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Date</label>
+                                    <input type="date" class="form-control" id="initPaymentDate">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Méthode</label>
+                                    <select class="form-select" id="initPaymentMethod">
+                                        <option value="">Sélectionner...</option>
+                                        <option value="especes">Espèces</option>
+                                        <option value="cheque">Chèque</option>
+                                        <option value="virement">Virement</option>
+                                        <option value="carte">Carte bancaire</option>
+                                        <option value="mobile">Mobile Money</option>
+                                    </select>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Référence</label>
+                                    <input type="text" class="form-control" id="initPaymentReference" placeholder="Référence de paiement (optionnel)">
+                                </div>
+                            </div>
                         </div>
                     </form>
                 </div>
@@ -422,5 +493,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-    <script src="{{ url_for('static', path='js/debts.js') }}?v=2.2"></script>
+    <script src="{{ url_for('static', path='js/debts.js') }}?v=2.3"></script>
 {% endblock %}

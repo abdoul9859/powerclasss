@@ -662,7 +662,7 @@ async def get_product(
 async def create_product(
     product_data: ProductCreate,
     db: Session = Depends(get_db),
-    current_user = Depends(require_any_role(["manager"]))
+    current_user = Depends(require_any_role(["user", "manager"]))
 ):
     """Créer un nouveau produit avec variantes selon la règle métier"""
     try:

@@ -383,20 +383,44 @@ async def create_invoice(
             if not product:
                 raise HTTPException(status_code=404, detail=f"Produit {item_data.product_id} non trouvé")
             
-            # Vérifier stock disponible
-            if (product.quantity or 0) < item_data.quantity:
-                raise HTTPException(status_code=400, detail=f"Stock insuffisant pour le produit {product.name}")
-            
-            # Si une variante est indiquée, vérifier et la marquer comme vendue
-            if getattr(item_data, 'variant_id', None):
-                variant = db.query(ProductVariant).filter(ProductVariant.variant_id == item_data.variant_id).first()
-                if not variant:
-                    raise HTTPException(status_code=404, detail=f"Variante {item_data.variant_id} introuvable")
-                if variant.product_id != product.product_id:
+            # Déterminer si le produit possède des variantes
+            has_variants = db.query(ProductVariant.variant_id).filter(ProductVariant.product_id == product.product_id).first() is not None
+
+            if has_variants:
+                # Les produits à variantes ne peuvent pas utiliser une quantité agrégée
+                # Exiger une variante explicite (ID ou IMEI) et forcer quantity=1 par ligne
+                resolved_variant = None
+                if getattr(item_data, 'variant_id', None):
+                    resolved_variant = db.query(ProductVariant).filter(ProductVariant.variant_id == item_data.variant_id).first()
+                    if not resolved_variant:
+                        raise HTTPException(status_code=404, detail=f"Variante {item_data.variant_id} introuvable")
+                elif getattr(item_data, 'variant_imei', None):
+                    imei_code = str(item_data.variant_imei).strip()
+                    resolved_variant = db.query(ProductVariant).filter(
+                        ProductVariant.product_id == product.product_id,
+                        func.trim(ProductVariant.imei_serial) == imei_code
+                    ).first()
+                    if not resolved_variant:
+                        raise HTTPException(status_code=404, detail=f"Variante avec IMEI {imei_code} introuvable")
+                else:
+                    raise HTTPException(status_code=400, detail="Produit avec variantes: vous devez sélectionner des variantes (IMEI) au lieu de définir une quantité")
+
+                # Valider l'appartenance et la disponibilité de la variante
+                if resolved_variant.product_id != product.product_id:
                     raise HTTPException(status_code=400, detail="Variante n'appartient pas au produit")
-                if bool(variant.is_sold):
-                    raise HTTPException(status_code=400, detail=f"La variante {variant.imei_serial} est déjà vendue")
-                variant.is_sold = True
+                if bool(resolved_variant.is_sold):
+                    raise HTTPException(status_code=400, detail=f"La variante {resolved_variant.imei_serial} est déjà vendue")
+
+                # Forcer quantité = 1 pour une ligne de variante
+                if int(item_data.quantity or 0) != 1:
+                    raise HTTPException(status_code=400, detail="Pour un produit avec variantes, la quantité doit être 1 par ligne de variante")
+
+                # Marquer la variante comme vendue
+                resolved_variant.is_sold = True
+            else:
+                # Produits sans variantes: vérifier stock disponible agrégé
+                if (product.quantity or 0) < item_data.quantity:
+                    raise HTTPException(status_code=400, detail=f"Stock insuffisant pour le produit {product.name}")
             
             # Créer l'élément de facture
             # Ensure product_name respects DB length (String(100))
@@ -549,11 +573,6 @@ async def update_invoice(
         if not invoice:
             raise HTTPException(status_code=404, detail="Facture non trouvée")
 
-        # Vérifier l'unicité du numéro si modifié
-        if invoice.invoice_number != invoice_data.invoice_number:
-            existing = db.query(Invoice).filter(Invoice.invoice_number == invoice_data.invoice_number).first()
-            if existing and int(existing.invoice_id) != int(invoice_id):
-                raise HTTPException(status_code=400, detail="Ce numéro de facture existe déjà")
 
         # Vérifier que le client existe
         client = db.query(Client).filter(Client.client_id == invoice_data.client_id).first()
@@ -671,7 +690,7 @@ async def update_invoice(
         db.flush()
 
         # 2) APPLY: mettre à jour la facture et recréer les items avec nouveaux impacts stock/variants
-        invoice.invoice_number = invoice_data.invoice_number
+        invoice.invoice_number = invoice.invoice_number
         invoice.client_id = invoice_data.client_id
         invoice.quotation_id = invoice_data.quotation_id
         invoice.date = invoice_data.date
@@ -722,20 +741,39 @@ async def update_invoice(
             if not product:
                 raise HTTPException(status_code=404, detail=f"Produit {item_data.product_id} non trouvé")
 
-            # Vérifier stock suffisant
-            if (product.quantity or 0) < int(item_data.quantity or 0):
-                raise HTTPException(status_code=400, detail=f"Stock insuffisant pour le produit {product.name}")
+            # Déterminer si le produit possède des variantes
+            has_variants = db.query(ProductVariant.variant_id).filter(ProductVariant.product_id == product.product_id).first() is not None
 
-            # Gérer une éventuelle variante (si fournie)
-            if getattr(item_data, 'variant_id', None):
-                variant = db.query(ProductVariant).filter(ProductVariant.variant_id == item_data.variant_id).first()
-                if not variant:
-                    raise HTTPException(status_code=404, detail=f"Variante {item_data.variant_id} introuvable")
-                if variant.product_id != product.product_id:
+            if has_variants:
+                # Exiger une variante spécifique et interdire la quantité agrégée (>1) sans variantes
+                resolved_variant = None
+                if getattr(item_data, 'variant_id', None):
+                    resolved_variant = db.query(ProductVariant).filter(ProductVariant.variant_id == item_data.variant_id).first()
+                    if not resolved_variant:
+                        raise HTTPException(status_code=404, detail=f"Variante {item_data.variant_id} introuvable")
+                elif getattr(item_data, 'variant_imei', None):
+                    imei_code = str(item_data.variant_imei).strip()
+                    resolved_variant = db.query(ProductVariant).filter(
+                        ProductVariant.product_id == product.product_id,
+                        func.trim(ProductVariant.imei_serial) == imei_code
+                    ).first()
+                    if not resolved_variant:
+                        raise HTTPException(status_code=404, detail=f"Variante avec IMEI {imei_code} introuvable")
+                else:
+                    raise HTTPException(status_code=400, detail="Produit avec variantes: vous devez sélectionner des variantes (IMEI) au lieu de définir une quantité")
+
+                if resolved_variant.product_id != product.product_id:
                     raise HTTPException(status_code=400, detail="Variante n'appartient pas au produit")
-                if bool(variant.is_sold):
-                    raise HTTPException(status_code=400, detail=f"La variante {variant.imei_serial} est déjà vendue")
-                variant.is_sold = True
+                if bool(resolved_variant.is_sold):
+                    raise HTTPException(status_code=400, detail=f"La variante {resolved_variant.imei_serial} est déjà vendue")
+                # Forcer quantité = 1 par ligne de variante
+                if int(item_data.quantity or 0) != 1:
+                    raise HTTPException(status_code=400, detail="Pour un produit avec variantes, la quantité doit être 1 par ligne de variante")
+                resolved_variant.is_sold = True
+            else:
+                # Produits sans variantes: vérifier stock disponible agrégé
+                if (product.quantity or 0) < int(item_data.quantity or 0):
+                    raise HTTPException(status_code=400, detail=f"Stock insuffisant pour le produit {product.name}")
 
             # Créer l'item
             # Ensure product_name respects DB length (String(100))
@@ -775,15 +813,56 @@ async def update_invoice(
 
         db.commit()
         db.refresh(invoice)
-        
+
         # Clear invoices cache after update to ensure fresh data on next load
         _invoices_cache.clear()
-        
+
         try:
             recompute_invoices_stats(db)
         except Exception:
             pass
-        return invoice
+
+        # Façonner la réponse complète avec client_name pour respecter InvoiceResponse
+        try:
+            client_name = db.query(Client.name).filter(Client.client_id == invoice.client_id).scalar() or ""
+        except Exception:
+            client_name = ""
+        try:
+            _ = invoice.items
+        except Exception:
+            pass
+        return {
+            "invoice_id": invoice.invoice_id,
+            "invoice_number": invoice.invoice_number,
+            "client_id": invoice.client_id,
+            "client_name": client_name,
+            "quotation_id": invoice.quotation_id,
+            "date": invoice.date,
+            "due_date": invoice.due_date,
+            "status": invoice.status,
+            "payment_method": invoice.payment_method,
+            "subtotal": float(invoice.subtotal or 0),
+            "tax_rate": float(invoice.tax_rate or 0),
+            "tax_amount": float(invoice.tax_amount or 0),
+            "total": float(invoice.total or 0),
+            "paid_amount": float(invoice.paid_amount or 0),
+            "remaining_amount": float(invoice.remaining_amount or 0),
+            "notes": invoice.notes,
+            "show_tax": bool(invoice.show_tax),
+            "price_display": invoice.price_display or "FCFA",
+            "created_at": getattr(invoice, "created_at", None),
+            "items": [
+                {
+                    "item_id": it.item_id,
+                    "product_id": it.product_id,
+                    "product_name": it.product_name,
+                    "quantity": it.quantity,
+                    "price": float(it.price or 0),
+                    "total": float(it.total or 0),
+                }
+                for it in (invoice.items or [])
+            ],
+        }
 
     except HTTPException:
         raise

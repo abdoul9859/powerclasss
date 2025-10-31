@@ -1,6 +1,6 @@
 // Gestion des factures
 let currentPage = 1;
-const itemsPerPage = 20;
+const itemsPerPage = 100;
 let invoices = [];
 let filteredInvoices = [];
 let clients = [];
@@ -2092,15 +2092,16 @@ async function preloadInvoiceIntoForm(invoiceId) {
     
     // Reconstituer les items avec les IMEI groupés par produit
     const itemsGroupedByProduct = new Map();
+    const customItemsBuffer = [];
     (inv.items || []).forEach(it => {
         const key = String(it.product_id || '');
         if (!key) {
-            // Item sans product_id (service personnalisé)
-            invoiceItems.push({
+            // Item sans product_id (service personnalisé) -> bufferiser, on ajoutera après
+            customItemsBuffer.push({
                 id: Date.now() + Math.random(),
                 product_id: it.product_id,
                 product_name: it.product_name,
-                is_custom: !it.product_id,
+                is_custom: true,
                 variant_id: it.variant_id || null,
                 variant_imei: it.variant_imei || null,
                 scannedImeis: [],
@@ -2142,6 +2143,11 @@ async function preloadInvoiceIntoForm(invoiceId) {
             total: totalAmount
         });
     });
+
+    // Ajouter les services personnalisés buffered à la fin (ou au début selon UX souhaitée)
+    if (customItemsBuffer.length > 0) {
+        invoiceItems.push(...customItemsBuffer);
+    }
     
     // Fallback: si pas de métadonnées IMEI, essayer de parser depuis les noms de produits
     if (serialsMap.size === 0) {

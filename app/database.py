@@ -101,6 +101,37 @@ class Client(Base):
     country = Column(String(50), default="Sénégal")
     tax_number = Column(String(50))
     notes = Column(Text)
+
+# Créances clients (dettes clients manuelles)
+class ClientDebt(Base):
+    __tablename__ = "client_debts"
+
+    debt_id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.client_id", ondelete="SET NULL"), index=True, nullable=True)
+    reference = Column(String(100), nullable=False)
+    date = Column(DateTime, default=func.now())
+    due_date = Column(DateTime)
+    amount = Column(Numeric(12, 2), nullable=False)
+    paid_amount = Column(Numeric(12, 2), default=0)
+    remaining_amount = Column(Numeric(12, 2), default=0)
+    status = Column(String(20), default="pending")  # pending, partial, paid, overdue
+    description = Column(Text)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=func.now())
+
+    # Relations
+    client = relationship("Client")
+
+class ClientDebtPayment(Base):
+    __tablename__ = "client_debt_payments"
+
+    payment_id = Column(Integer, primary_key=True, index=True)
+    debt_id = Column(Integer, ForeignKey("client_debts.debt_id", ondelete="CASCADE"))
+    amount = Column(Numeric(12, 2), nullable=False)
+    payment_date = Column(DateTime, default=func.now())
+    payment_method = Column(String(50))
+    reference = Column(String(100))
+    notes = Column(Text)
     created_at = Column(DateTime, default=func.now())
 
 # Achats quotidiens (petites dépenses)
