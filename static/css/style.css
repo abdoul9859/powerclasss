@@ -548,3 +548,35 @@ a:hover {
         border: 1px solid #dee2e6;
     }
 }
+
+/* Alerts visibility improvements (popups) */
+#alerts-container .alert {
+    opacity: 1 !important;
+    backdrop-filter: none !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    border-width: 0;
+}
+#alerts-container .alert.alert-success {
+    background-color: var(--success-color) !important;
+    color: #ffffff !important;
+}
+#alerts-container .alert.alert-danger {
+    background-color: var(--danger-color) !important;
+    color: #ffffff !important;
+}
+#alerts-container .alert.alert-warning {
+    background-color: var(--warning-color) !important;
+    color: #000000 !important;
+}
+#alerts-container .alert.alert-info {
+    background-color: var(--info-color) !important;
+    color: #ffffff !important;
+}
+
+#alerts-container .alert .btn-close {
+    filter: invert(1) grayscale(100%);
+    opacity: 0.9;
+}
+#alerts-container .alert .btn-close:hover {
+    opacity: 1;
+}

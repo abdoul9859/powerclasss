@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', function() {
         loadClients();
         loadSuppliers();
         setupEventListeners();
+        setupEntityAutocomplete();
         setDefaultDate();
     };
 
@@ -37,6 +38,22 @@ function setupEventListeners() {
 
     // Type de dette change
     document.getElementById('debtType').addEventListener('change', handleDebtTypeChange);
+    
+    // Auto-ajuster l'échéance si la date de création change (pour créance client)
+    document.getElementById('debtDate').addEventListener('change', () => {
+        if (document.getElementById('debtType').value === 'client') {
+            const creationDateInput = document.getElementById('debtDate');
+            const dueDateInput = document.getElementById('dueDate');
+            if (creationDateInput && dueDateInput) {
+                const creationDate = new Date(creationDateInput.value);
+                if (!isNaN(creationDate.getTime())) {
+                    const dueDate = new Date(creationDate);
+                    dueDate.setMonth(dueDate.getMonth() + 1);
+                    dueDateInput.value = dueDate.toISOString().split('T')[0];
+                }
+            }
+        }
+    });
 
     // Modal de suppression
     const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
@@ -60,6 +77,154 @@ function setupEventListeners() {
     if (amountInput) enforceIntegerInput(amountInput);
     const paymentAmountInput = document.getElementById('paymentAmount');
     if (paymentAmountInput) enforceIntegerInput(paymentAmountInput);
+    const initPaymentAmountInput = document.getElementById('initPaymentAmount');
+    if (initPaymentAmountInput) enforceIntegerInput(initPaymentAmountInput);
+}
+
+// Gérer l'autocomplétion du champ client/fournisseur
+function setupEntityAutocomplete() {
+    const input = document.getElementById('entitySelect');
+    const dropdown = document.getElementById('entityDropdown');
+    if (!input || !dropdown) return;
+
+    input.addEventListener('focus', () => {
+        showAllEntities();
+    });
+
+    input.addEventListener('input', () => {
+        const query = input.value.toLowerCase().trim();
+        if (query.length === 0) {
+            showAllEntities();
+        } else {
+            filterEntities(query);
+        }
+    });
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            hideDropdown();
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+            hideDropdown();
+        }
+    });
+}
+
+function showAllEntities() {
+    const dropdown = document.getElementById('entityDropdown');
+    const debtType = document.getElementById('debtType').value;
+    const entities = debtType === 'client' ? clients : suppliers;
+    if (!dropdown || !Array.isArray(entities)) return;
+    dropdown.innerHTML = '';
+    entities.forEach(entity => {
+        const li = document.createElement('li');
+        const name = entity.name || 'Sans nom';
+        const id = entity.client_id ?? entity.supplier_id ?? entity.id;
+        li.innerHTML = `<a class="dropdown-item" href="#" data-id="${id}">${escapeHtml(name)}</a>`;
+        li.addEventListener('click', (e) => {
+            e.preventDefault();
+            selectEntity(id, name);
+        });
+        dropdown.appendChild(li);
+    });
+    dropdown.style.display = 'block';
+}
+
+function filterEntities(query) {
+    const dropdown = document.getElementById('entityDropdown');
+    const debtType = document.getElementById('debtType').value;
+    const entities = debtType === 'client' ? clients : suppliers;
+    if (!dropdown || !Array.isArray(entities)) return;
+    dropdown.innerHTML = '';
+    const filtered = entities.filter(entity =>
+        (entity.name || '').toLowerCase().includes(query)
+    );
+    if (filtered.length === 0) {
+        const li = document.createElement('li');
+        li.innerHTML = `<span class="dropdown-item text-muted">Aucun résultat</span>`;
+        dropdown.appendChild(li);
+    } else {
+        filtered.forEach(entity => {
+            const li = document.createElement('li');
+            const name = entity.name || 'Sans nom';
+            const id = entity.client_id ?? entity.supplier_id ?? entity.id;
+            li.innerHTML = `<a class="dropdown-item" href="#" data-id="${id}">${escapeHtml(name)}</a>`;
+            li.addEventListener('click', (e) => {
+                e.preventDefault();
+                selectEntity(id, name);
+            });
+            dropdown.appendChild(li);
+        });
+    }
+    dropdown.style.display = 'block';
+}
+
+function selectEntity(id, name) {
+    const input = document.getElementById('entitySelect');
+    input.value = name;
+    input.dataset.selectedId = id;
+    hideDropdown();
+}
+
+function hideDropdown() {
+    const dropdown = document.getElementById('entityDropdown');
+    if (dropdown) dropdown.style.display = 'none';
+}
+
+function getSelectedEntityId() {
+    const input = document.getElementById('entitySelect');
+    return input ? parseInt(input.dataset.selectedId || input.value) : null;
+}
+
+// Toggle affichage création rapide client (global)
+function toggleNewClient(show = true) {
+    try {
+        const t = document.getElementById('debtType').value;
+        const section = document.getElementById('newClientSection');
+        if (!section) return;
+        if (t !== 'client') { section.style.display = 'none'; return; }
+        section.style.display = show ? '' : 'none';
+    } catch (e) {}
+}
+
+// Création rapide de client depuis la modale (global)
+async function quickAddClient() {
+    try {
+        const name = (document.getElementById('newClientName').value || '').trim();
+        const phone = (document.getElementById('newClientPhone').value || '').trim();
+        const email = (document.getElementById('newClientEmail').value || '').trim();
+        if (!name) { showError('Veuillez saisir le nom du client'); return; }
+        const payload = { name, phone: phone || undefined, email: email || undefined };
+        const { data } = await axios.post('/api/clients', payload);
+        if (!data || (!data.client_id && !data.id)) {
+            showError('Création du client échouée');
+            return;
+        }
+        try {
+            if (!Array.isArray(clients)) clients = [];
+            // Normaliser l'objet client pour notre usage
+            const newClient = {
+                client_id: data.client_id ?? data.id,
+                name: data.name,
+                email: data.email,
+                phone: data.phone
+            };
+            // Éviter les doublons
+            if (!clients.some(c => Number(c.client_id ?? c.id) === Number(newClient.client_id))) {
+                clients.push(newClient);
+            }
+        } catch (e) {}
+        updateEntitySelect();
+        selectEntity(data.client_id ?? data.id, data.name);
+        toggleNewClient(false);
+        showSuccess('Client créé');
+    } catch (error) {
+        console.error('Erreur création client:', error);
+        showError(error?.response?.data?.detail || 'Erreur lors de la création du client');
+    }
 }
 
 // Définir les dates par défaut
@@ -67,6 +232,8 @@ function setDefaultDate() {
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('debtDate').value = today;
     document.getElementById('paymentDate').value = today;
+    const initPayEl = document.getElementById('initPaymentDate');
+    if (initPayEl) initPayEl.value = today;
 }
 
 // Charger les dettes
@@ -175,6 +342,7 @@ function createDebtRow(debt) {
     const row = document.createElement('tr');
     const entityName = getEntityName(debt);
     const remaining = (debt.amount || 0) - (debt.paid_amount || 0);
+    const canAddPayment = (debt.type === 'client' && !debt.has_invoice && remaining > 0);
     
     row.innerHTML = `
         <td>
@@ -210,9 +378,18 @@ function createDebtRow(debt) {
         </td>
         <td>
             <div class="btn-group btn-group-sm">
+                ${canAddPayment ? `
+                <button class="btn btn-outline-success" onclick="addPayment(${debt.id})" title="Ajouter un paiement">
+                    <i class="bi bi-cash-coin"></i>
+                </button>` : ''}
+                ${debt.has_invoice ? `
                 <button class="btn btn-outline-primary" onclick="viewDebt(${debt.id})" title="Voir la facture">
                     <i class="bi bi-receipt"></i>
-                </button>
+                </button>` : ''}
+                ${(debt.type === 'client' && !debt.has_invoice) ? `
+                <button class="btn btn-outline-danger" onclick="deleteDebt(${debt.id})" title="Supprimer la créance">
+                    <i class="bi bi-trash"></i>
+                </button>` : ''}
             </div>
         </td>
     `;
@@ -305,9 +482,8 @@ function updateResultsCount(count) {
 
 // Créer une nouvelle dette
 function createDebt() {
-    // Création autorisée uniquement pour les dettes fournisseur
     resetDebtForm();
-    document.getElementById('debtType').value = 'supplier';
+    document.getElementById('debtType').value = 'client';
     handleDebtTypeChange();
     const modal = new bootstrap.Modal(document.getElementById('debtModal'));
     modal.show();
@@ -331,31 +507,48 @@ function resetDebtForm() {
 // Gérer le changement de type de dette
 function handleDebtTypeChange() {
     updateEntitySelect();
+    const t = document.getElementById('debtType').value;
+    const initSection = document.getElementById('initialPaymentSection');
+    if (initSection) initSection.style.display = (t === 'client') ? '' : 'none';
+    const newClientBtn = document.getElementById('newClientBtn');
+    if (newClientBtn) newClientBtn.style.display = (t === 'client') ? '' : 'none';
+    if (t !== 'client') toggleNewClient(false);
+    // Auto-set due date to 1 month later for client debts
+    if (t === 'client') {
+        const creationDateInput = document.getElementById('debtDate');
+        const dueDateInput = document.getElementById('dueDate');
+        if (creationDateInput && dueDateInput) {
+            const creationDate = new Date(creationDateInput.value);
+            if (!isNaN(creationDate.getTime())) {
+                const dueDate = new Date(creationDate);
+                dueDate.setMonth(dueDate.getMonth() + 1);
+                dueDateInput.value = dueDate.toISOString().split('T')[0];
+            }
+        }
+    }
 }
 
 // Mettre à jour le sélecteur d'entité
 function updateEntitySelect() {
     const debtType = document.getElementById('debtType').value;
-    const entitySelect = document.getElementById('entitySelect');
     const entityLabel = document.getElementById('entityLabel');
-    
-    entitySelect.innerHTML = '<option value="">Sélectionner...</option>';
+    const entityInput = document.getElementById('entitySelect');
     
     if (debtType === 'client') {
         entityLabel.textContent = 'Client';
-        clients.forEach(client => {
-            const option = new Option(client.name, client.id);
-            entitySelect.appendChild(option);
-        });
+        entityInput.placeholder = 'Rechercher un client...';
     } else if (debtType === 'supplier') {
         entityLabel.textContent = 'Fournisseur';
-        suppliers.forEach(supplier => {
-            const option = new Option(supplier.name, supplier.id);
-            entitySelect.appendChild(option);
-        });
+        entityInput.placeholder = 'Rechercher un fournisseur...';
     } else {
         entityLabel.textContent = 'Client/Fournisseur';
+        entityInput.placeholder = 'Rechercher...';
     }
+    // Vider le champ et le dataset pour forcer une nouvelle sélection
+    entityInput.value = '';
+    delete entityInput.dataset.selectedId;
+    // Masquer la dropdown au changement de type
+    hideDropdown();
 }
 
 // Modifier une dette
@@ -377,7 +570,15 @@ function editDebt(id) {
     document.getElementById('debtStatus').value = d.status || 'pending';
     document.getElementById('description').value = d.description || '';
     document.getElementById('notes').value = d.notes || '';
-    setTimeout(() => { document.getElementById('entitySelect').value = d.entity_id || ''; }, 50);
+    setTimeout(() => {
+        const entityInput = document.getElementById('entitySelect');
+        const entity = d.type === 'client' 
+            ? clients.find(c => (c.client_id ?? c.id) === d.entity_id)
+            : suppliers.find(s => (s.supplier_id ?? s.id) === d.entity_id);
+        if (entity) {
+            selectEntity(d.entity_id, entity.name);
+        }
+    }, 50);
     currentDebtId = d.id;
     const modal = new bootstrap.Modal(document.getElementById('debtModal'));
     modal.show();
@@ -394,7 +595,7 @@ async function saveDebt() {
     const debtData = {
         type: document.getElementById('debtType').value,
         reference: document.getElementById('reference').value,
-        entity_id: parseInt(document.getElementById('entitySelect').value),
+        entity_id: getSelectedEntityId(),
         amount: Math.round(parseFloat(document.getElementById('amount').value)),
         date: document.getElementById('debtDate').value,
         due_date: document.getElementById('dueDate').value || null,
@@ -402,22 +603,52 @@ async function saveDebt() {
         notes: document.getElementById('notes').value
     };
 
-    if (debtData.type !== 'supplier') {
-        showInfo('Les créances clients sont générées automatiquement à partir des factures.');
-        return;
+    if (!debtData.entity_id) { 
+        showError(debtData.type === 'client' ? 'Veuillez sélectionner un client' : 'Veuillez sélectionner un fournisseur'); 
+        return; 
     }
-    if (!debtData.entity_id) { showError('Veuillez sélectionner un fournisseur'); return; }
     if (!debtData.reference.trim()) { showError('Veuillez saisir une référence'); return; }
     if (!debtData.amount || debtData.amount <= 0) { showError('Veuillez saisir un montant valide'); return; }
     // Création: toujours non payé au départ
 
     try {
-        if (currentDebtId) {
-            await axios.put(`/api/debts/${currentDebtId}`, debtData);
+        if (debtData.type === 'client') {
+            // Créer une créance client manuelle (sans facture)
+            const { data: created } = await axios.post('/api/debts', debtData);
+            // Paiement initial optionnel
+            try {
+                const rawAmt = document.getElementById('initPaymentAmount').value;
+                const payAmt = Math.floor(Number(String(rawAmt).replace(',', '.')));
+                if (Number.isFinite(payAmt) && payAmt > 0) {
+                    const payDateStr = document.getElementById('initPaymentDate').value;
+                    const payMethod = document.getElementById('initPaymentMethod').value || 'especes';
+                    const payRef = document.getElementById('initPaymentReference').value || undefined;
+                    const payload = {
+                        amount: payAmt,
+                        date: payDateStr || undefined,
+                        method: payMethod,
+                        reference: payRef,
+                        notes: 'Paiement initial (créance client)'
+                    };
+                    const debtId = created?.id;
+                    if (debtId) {
+                        await axios.post(`/api/debts/${debtId}/payments`, payload);
+                    }
+                }
+            } catch (e) {
+                console.warn('Erreur paiement initial:', e);
+            }
         } else {
-            await axios.post('/api/debts', debtData);
+            if (currentDebtId) {
+                await axios.put(`/api/debts/${currentDebtId}`, debtData);
+            } else {
+                await axios.post('/api/debts', debtData);
+            }
         }
-        showSuccess(currentDebtId ? 'Dette fournisseur modifiée' : 'Dette fournisseur créée');
+        const createdMsg = debtData.type === 'client' 
+            ? (currentDebtId ? 'Créance client modifiée' : 'Créance client créée') 
+            : (currentDebtId ? 'Dette fournisseur modifiée' : 'Dette fournisseur créée');
+        showSuccess(createdMsg);
         const modal = bootstrap.Modal.getInstance(document.getElementById('debtModal'));
         modal.hide();
         loadDebts();
@@ -531,15 +762,18 @@ function deleteDebt(id) {
 async function confirmDelete() {
     if (!currentDebtId) return;
     const d = debts.find(x => x.id === currentDebtId);
-    if (!d || d.type !== 'supplier') {
-        showInfo('Suppression non disponible pour les créances clients.');
+    if (!d) return;
+    // Interdire la suppression des créances issues d'une facture
+    if (d.has_invoice) {
+        showInfo("Impossible de supprimer une créance issue d'une facture.");
         return;
     }
     try {
         await axios.delete(`/api/debts/${currentDebtId}`);
         const modal = bootstrap.Modal.getInstance(document.getElementById('deleteModal'));
-        modal.hide();
-        showSuccess('Dette fournisseur supprimée');
+        if (modal) modal.hide();
+        const msg = (d.type === 'client') ? 'Créance client supprimée' : 'Dette fournisseur supprimée';
+        showSuccess(msg);
         loadDebts();
         currentDebtId = null;
     } catch (error) {
