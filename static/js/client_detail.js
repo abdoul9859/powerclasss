@@ -62,6 +62,12 @@ function renderClientDetails(payload) {
 
     const newInvoiceBtn = document.getElementById('newInvoiceBtn');
     if (newInvoiceBtn) newInvoiceBtn.href = `/invoices?create_for=${c.client_id}`;
+
+    const clientDebtsBtn = document.getElementById('clientDebtsBtn');
+    if (clientDebtsBtn) clientDebtsBtn.href = `/clients/debts?client_id=${c.client_id}`;
+
+    const manageDebtsBtn = document.getElementById('manageDebtsBtn');
+    if (manageDebtsBtn) manageDebtsBtn.href = `/clients/debts?client_id=${c.client_id}`;
 }
 
 function badgeForStatus(status) {

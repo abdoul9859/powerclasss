@@ -437,6 +437,11 @@
           var lastV = '{{ ASSET_VERSION() }}';
           function reloadWith(v){
             try{
+              if ('caches' in window) {
+                caches.keys().then(function(keys){ keys.forEach(function(k){ caches.delete(k); }); });
+              }
+            }catch(e){}
+            try{
               var u = new URL(window.location.href);
               u.searchParams.set('__v', v);
               window.location.replace(u.toString());

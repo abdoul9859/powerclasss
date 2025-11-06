@@ -6,7 +6,10 @@
 <div class="row">
     <div class="col-12 d-flex justify-content-between align-items-center mb-3">
         <h1 class="h4 mb-0"><i class="bi bi-person-circle me-2"></i>Détails Client</h1>
-        <a href="/clients" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Retour</a>
+        <div class="d-flex gap-2">
+            <a id="clientDebtsBtn" class="btn btn-warning"><i class="bi bi-cash-coin me-1"></i>Créances</a>
+            <a href="/clients" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Retour</a>
+        </div>
     </div>
 </div>
 
@@ -121,7 +124,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="/static/js/client_detail.js?v={{ ASSET_VERSION }}"></script>
+<script src="/static/js/client_detail.js?v={{ ASSET_VERSION() }}"></script>
 {% endblock %}
 
 

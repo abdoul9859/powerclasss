@@ -241,7 +241,7 @@ async function loadDebts() {
     try {
         showLoading();
         const response = await safeLoadData(
-            () => axios.get('/api/debts'),
+            () => axios.get('/api/debts/', { params: { limit: 10000, skip: 0 } }),
             {
                 timeout: 8000,
                 fallbackData: [],
@@ -354,7 +354,7 @@ function createDebtRow(debt) {
                 ${getTypeLabel(debt.type)}
             </span>
         </td>
-        <td>${escapeHtml(entityName)}</td>
+        <td>${(debt.type === 'client' && debt.entity_id) ? `<a href="/clients/debts?client_id=${encodeURIComponent(debt.entity_id)}">${escapeHtml(entityName)}</a>` : escapeHtml(entityName)}</td>
         <td>${formatDate(debt.date)}</td>
         <td>
             ${debt.due_date ? formatDate(debt.due_date) : '-'}

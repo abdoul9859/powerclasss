@@ -58,10 +58,14 @@ try:
     from app.models.models import Settings as LegacySettings  # type: ignore
 except Exception:
     LegacySettings = None  # type: ignore
-from app.routers import auth, products, clients, stock_movements, invoices, quotations, suppliers, debts, delivery_notes, bank_transactions, reports, user_settings, migrations, cache, dashboard, supplier_invoices, daily_recap, daily_purchases, daily_requests, daily_sales, google_sheets
+from app.routers import auth, products, clients, stock_movements, invoices, quotations, suppliers, debts, delivery_notes, bank_transactions, reports, user_settings, migrations, cache, dashboard, supplier_invoices, daily_recap, daily_purchases, daily_requests, daily_sales, google_sheets, client_debts
 from app.init_db import init_database
 from app.auth import get_current_user
 from app.services.migration_processor import migration_processor
+try:
+    from app.services.debt_notifier import debt_notifier
+except Exception:
+    debt_notifier = None  # type: ignore
 
 # Créer l'application FastAPI
 app = FastAPI(
@@ -127,6 +131,11 @@ async def startup_event():
             migration_processor.start_background_processor()
         else:
             print("⏭️ ENABLE_MIGRATIONS_WORKER!=true → worker migrations non démarré")
+        # Démarrer le notificateur de créances en retard si activé
+        if os.getenv("ENABLE_DEBT_REMINDERS", "false").lower() == "true":
+            if debt_notifier is not None:
+                debt_notifier.start_background()
+                print("✅ Notificateur de créances démarré")
         print("✅ Application démarrée avec succès")
     except Exception as e:
         print(f"❌ Erreur lors du démarrage: {e}")
@@ -138,6 +147,8 @@ async def shutdown_event():
         # Arrêter uniquement si le worker était activé
         if os.getenv("ENABLE_MIGRATIONS_WORKER", "false").lower() == "true":
             migration_processor.stop_background_processor()
+        if os.getenv("ENABLE_DEBT_REMINDERS", "false").lower() == "true" and debt_notifier is not None:
+            debt_notifier.stop_background()
         print("✅ Application arrêtée proprement")
     except Exception as e:
         print(f"❌ Erreur lors de l'arrêt: {e}")
@@ -217,6 +228,7 @@ app.include_router(quotations.router)
 app.include_router(suppliers.router)
 app.include_router(supplier_invoices.router)
 app.include_router(debts.router)
+app.include_router(client_debts.router)
 # Désactivation de la page Bons de Livraison
 app.include_router(bank_transactions.router)
 app.include_router(reports.router)
@@ -299,6 +311,113 @@ async def clients_page(request: Request, db: Session = Depends(get_db)):
 async def client_detail_page(request: Request, db: Session = Depends(get_db)):
     """Page de détail d'un client"""
     return templates.TemplateResponse("clients_detail.html", {"request": request, "global_settings": _load_company_settings(db)})
+
+@app.get("/clients/debts", response_class=HTMLResponse)
+async def client_debts_page(request: Request, db: Session = Depends(get_db)):
+    """Page des créances d'un client (agrégées)"""
+    return templates.TemplateResponse("client_debts.html", {"request": request, "global_settings": _load_company_settings(db)})
+
+@app.get("/clients/debts/print/{client_id}", response_class=HTMLResponse)
+async def client_debts_print_page(request: Request, client_id: int, db: Session = Depends(get_db)):
+    """Page imprimable du récapitulatif des créances d'un client"""
+    # Construire le même agrégat que l'API JSON pour le rendu
+    from datetime import date as _date
+    from sqlalchemy.orm import joinedload
+    from app.database import Client as _Client, Invoice as _Invoice, ClientDebt as _ClientDebt
+    cl = db.query(_Client).filter(_Client.client_id == client_id).first()
+    if not cl:
+        raise HTTPException(status_code=404, detail="Client non trouvé")
+    today = _date.today()
+    invs = (
+        db.query(_Invoice)
+        .options(joinedload(_Invoice.items))
+        .filter(_Invoice.client_id == client_id)
+        .order_by(_Invoice.date.desc())
+        .all()
+    )
+    def inv_status(inv):
+        amount = float(inv.total or 0)
+        paid = float(inv.paid_amount or 0)
+        remaining = float(inv.remaining_amount if inv.remaining_amount is not None else max(0.0, amount - paid))
+        overdue = bool(inv.due_date and getattr(inv.due_date, 'date', lambda: inv.due_date)() < today and remaining > 0)
+        st = "paid" if remaining <= 0 else ("overdue" if overdue else ("partial" if paid > 0 else "pending"))
+        return amount, paid, remaining, st
+    inv_data = []
+    for inv in invs:
+        amount, paid, remaining, st = inv_status(inv)
+        inv_data.append({
+            "id": int(inv.invoice_id),
+            "invoice_number": inv.invoice_number,
+            "date": inv.date,
+            "due_date": inv.due_date,
+            "amount": amount,
+            "paid_amount": paid,
+            "remaining_amount": remaining,
+            "status": st,
+            "items": [
+                {
+                    "product_name": it.product_name,
+                    "quantity": int(it.quantity or 0),
+                    "price": float(it.price or 0),
+                    "total": float(it.total or 0),
+                } for it in (inv.items or [])
+            ]
+        })
+    cds = (
+        db.query(_ClientDebt)
+        .filter(_ClientDebt.client_id == client_id)
+        .order_by(_ClientDebt.date.desc())
+        .all()
+    )
+    md_data = []
+    for d in cds:
+        amount = float(d.amount or 0)
+        paid = float(d.paid_amount or 0)
+        remaining = float(d.remaining_amount if d.remaining_amount is not None else amount - paid)
+        overdue = bool(d.due_date and getattr(d.due_date, 'date', lambda: d.due_date)() < today and remaining > 0)
+        st = d.status or ("paid" if remaining <= 0 else ("overdue" if overdue else ("partial" if paid > 0 else "pending")))
+        md_data.append({
+            "id": int(d.debt_id),
+            "reference": d.reference,
+            "date": d.date,
+            "due_date": d.due_date,
+            "amount": amount,
+            "paid_amount": paid,
+            "remaining_amount": remaining,
+            "status": st,
+            "description": d.description,
+        })
+    total_amount = sum(x.get("amount", 0.0) for x in inv_data) + sum(x.get("amount", 0.0) for x in md_data)
+    total_paid = sum(x.get("paid_amount", 0.0) for x in inv_data) + sum(x.get("paid_amount", 0.0) for x in md_data)
+    total_remaining = sum(x.get("remaining_amount", 0.0) for x in inv_data) + sum(x.get("remaining_amount", 0.0) for x in md_data)
+
+    company_settings = _load_company_settings(db)
+    context = {
+        "request": request,
+        "global_settings": company_settings,
+        "settings": {
+            "company_name": company_settings.get("name"),
+            "address": company_settings.get("address"),
+            "city": company_settings.get("city"),
+            "email": company_settings.get("email"),
+            "phone": company_settings.get("phone"),
+            "phone2": company_settings.get("phone2"),
+            "instagram": company_settings.get("instagram"),
+            "website": company_settings.get("website"),
+            "logo": company_settings.get("logo"),
+            "logo_path": company_settings.get("logo_path"),
+            "footer_text": company_settings.get("footer_text"),
+        },
+        "client": cl,
+        "invoices": inv_data,
+        "manual_debts": md_data,
+        "summary": {
+            "total_amount": total_amount,
+            "total_paid": total_paid,
+            "total_remaining": total_remaining,
+        }
+    }
+    return templates.TemplateResponse("print_client_debts.html", context)
 
 @app.get("/stock-movements", response_class=HTMLResponse)
 async def stock_movements_page(request: Request, db: Session = Depends(get_db)):

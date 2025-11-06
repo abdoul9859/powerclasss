@@ -8,6 +8,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: powerclasss_app
+    env_file:
+      - .env
     environment:
       DATABASE_URL: sqlite:////app/data/app.db
       DB_SSLMODE: disable
@@ -21,6 +23,7 @@ services:
       GOOGLE_SHEETS_SPREADSHEET_ID: 1VHMujdZw-iPs28pz1rC9Ol72T9l9YTW6Wr9j5ujEsXQ
       GOOGLE_SHEETS_WORKSHEET_NAME: Les produits
       GOOGLE_SHEETS_AUTO_SYNC: "true"
+      # Debt reminder / Twilio will be injected from .env via env_file above
     ports:
       - "8000:8000"
     volumes:

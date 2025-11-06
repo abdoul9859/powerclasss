@@ -155,6 +155,9 @@ function displayClients() {
                     <button class="btn btn-sm btn-outline-info" onclick="viewClient(${client.client_id})" title="Voir détails">
                         <i class="bi bi-eye"></i>
                     </button>
+                    <a class="btn btn-sm btn-outline-warning" href="/clients/debts?client_id=${client.client_id}" title="Créances">
+                        <i class="bi bi-cash-coin"></i>
+                    </a>
                     <button class="btn btn-sm btn-outline-danger" onclick="deleteClient(${client.client_id})" title="Supprimer">
                         <i class="bi bi-trash"></i>
                     </button>
