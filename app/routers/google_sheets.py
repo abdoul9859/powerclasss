@@ -3,7 +3,7 @@ API Router pour l'intégration Google Sheets
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 from app.database import get_db, User
 from app.auth import get_current_user
@@ -21,6 +21,7 @@ class GoogleSheetsSyncRequest(BaseModel):
     spreadsheet_id: str
     worksheet_name: str = 'Tableau1'
     update_existing: bool = False
+    imei_columns: Optional[List[str]] = None
 
 
 class GoogleSheetsTestRequest(BaseModel):
@@ -45,6 +46,19 @@ class GoogleSheetsSettingsResponse(BaseModel):
     spreadsheet_id: Optional[str] = None
     worksheet_name: Optional[str] = None
     last_sync: Optional[str] = None
+
+# Aperçu de feuille
+class GoogleSheetsPreviewRequest(BaseModel):
+    spreadsheet_id: str
+    worksheet_name: str = 'Tableau1'
+    limit: int = 10
+
+class GoogleSheetsPreviewResponse(BaseModel):
+    success: bool
+    headers: List[str] = []
+    rows: list = []
+    suggested_imei_headers: List[str] = []
+    error: Optional[str] = None
 
 # Configuration optionnelle pour démarrer l'auto-sync avec la même feuille que le formulaire
 class AutoSyncConfig(BaseModel):
@@ -75,10 +89,8 @@ async def sync_products_from_sheets(
         )
 
     try:
-        # Initialise le service Google Sheets
         service = GoogleSheetsService()
 
-        # Vérifie que les credentials sont configurés
         if not service.credentials_path or not os.path.exists(service.credentials_path):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -86,22 +98,23 @@ async def sync_products_from_sheets(
                        "Veuillez configurer GOOGLE_SHEETS_CREDENTIALS_PATH dans les variables d'environnement."
             )
 
-        # Authentification
         if not service.authenticate():
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Impossible de s'authentifier avec Google Sheets API"
             )
 
-        # Synchronise les produits
+        # IMPORTANT: on force update_existing=False pour que Google Sheets
+        # ne serve qu'à ajouter de nouveaux produits (pas de mise à jour ni
+        # de modification de stock pour les produits déjà existants).
         stats = service.sync_products(
             db=db,
             spreadsheet_id=request.spreadsheet_id,
             worksheet_name=request.worksheet_name,
-            update_existing=request.update_existing
+            update_existing=False,
+            imei_columns=request.imei_columns
         )
 
-        # Construit le message de réponse
         message = (
             f"Synchronisation terminée: {stats['created']} créés, "
             f"{stats['updated']} mis à jour, {stats['skipped']} ignorés, "
@@ -113,7 +126,6 @@ async def sync_products_from_sheets(
             message=message,
             stats=stats
         )
-
     except HTTPException:
         raise
     except Exception as e:
@@ -121,6 +133,39 @@ async def sync_products_from_sheets(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erreur lors de la synchronisation: {str(e)}"
         )
+
+
+@router.post("/preview", response_model=GoogleSheetsPreviewResponse)
+async def preview_google_sheet(
+    request: GoogleSheetsPreviewRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Récupère un aperçu (en-têtes + premières lignes) d'une feuille Google Sheets
+    """
+    if current_user.role not in ['admin', 'manager']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès refusé"
+        )
+
+    try:
+        service = GoogleSheetsService()
+        if not service.credentials_path or not os.path.exists(service.credentials_path):
+            return GoogleSheetsPreviewResponse(success=False, error="Les credentials Google Sheets ne sont pas configurés")
+
+        if not service.authenticate():
+            return GoogleSheetsPreviewResponse(success=False, error="Impossible de s'authentifier avec Google Sheets API")
+
+        preview = service.get_sheet_preview(
+            spreadsheet_id=request.spreadsheet_id,
+            worksheet_name=request.worksheet_name,
+            limit=request.limit
+        )
+
+        return GoogleSheetsPreviewResponse(success=True, **preview)
+    except Exception as e:
+        return GoogleSheetsPreviewResponse(success=False, error=str(e))
 
 
 @router.post("/test-connection", response_model=GoogleSheetsTestResponse)

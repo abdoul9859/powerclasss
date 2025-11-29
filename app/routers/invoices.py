@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, and_, or_
 from typing import List, Optional
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from ..database import (
     get_db,
     Invoice,
@@ -185,13 +185,54 @@ async def list_invoices_paginated(
         base = base.filter(func.date(Invoice.date) <= end_date)
     if search:
         s = search.strip()
+
+        # Sous-requête: factures contenant un produit/une variante correspondant au code (barcode/IMEI)
+        try:
+            from sqlalchemy.sql import exists as _exists
+        except Exception:
+            _exists = None
+
+        product_match_invoice_ids = None
+        try:
+            # Construire une sous-requête sur InvoiceItem -> Product -> ProductVariant
+            items_q = (
+                db.query(InvoiceItem.invoice_id)
+                .join(Product, InvoiceItem.product_id == Product.product_id, isouter=True)
+                .join(ProductVariant, ProductVariant.product_id == Product.product_id, isouter=True)
+            )
+            like = f"%{s}%"
+            items_q = items_q.filter(
+                or_(
+                    func.trim(Product.barcode).ilike(like),
+                    func.trim(ProductVariant.barcode).ilike(like),
+                    func.trim(ProductVariant.imei_serial).ilike(like),
+                )
+            ).distinct()
+            product_match_invoice_ids = [row[0] for row in items_q.all()]
+        except Exception:
+            product_match_invoice_ids = None
+
         if s.isdigit():
+            # Recherche numérique: matcher l'ID de facture, le numéro, ET les produits/IMEI éventuels
             try:
-                base = base.filter(Invoice.invoice_id == int(s))
+                id_val = int(s)
             except Exception:
-                base = base.filter(Invoice.invoice_number.ilike(f"%{s}%"))
+                id_val = None
+
+            conditions = []
+            if id_val is not None:
+                conditions.append(Invoice.invoice_id == id_val)
+            conditions.append(Invoice.invoice_number.ilike(f"%{s}%"))
+            if product_match_invoice_ids:
+                conditions.append(Invoice.invoice_id.in_(product_match_invoice_ids))
+
+            base = base.filter(or_(*conditions))
         else:
-            base = base.filter(Invoice.invoice_number.ilike(f"%{s}%"))
+            # Recherche texte: numéro de facture ou IMEI/barcode produit/variante
+            conditions = [Invoice.invoice_number.ilike(f"%{s}%")]
+            if product_match_invoice_ids:
+                conditions.append(Invoice.invoice_id.in_(product_match_invoice_ids))
+            base = base.filter(or_(*conditions))
 
     # Total avant pagination
     total = base.count()
@@ -266,7 +307,7 @@ async def get_invoice(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Obtenir une facture par ID avec items et paiements"""
+    """Obtenir une facture par ID avec items, paiements et nom du client"""
     invoice = db.query(Invoice).filter(Invoice.invoice_id == invoice_id).first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Facture non trouvée")
@@ -275,10 +316,17 @@ async def get_invoice(
     _ = invoice.items
     _ = invoice.payments
 
+    client_name = None
+    try:
+        client_name = db.query(Client.name).filter(Client.client_id == invoice.client_id).scalar()
+    except Exception:
+        client_name = None
+
     return {
         "invoice_id": invoice.invoice_id,
         "invoice_number": invoice.invoice_number,
         "client_id": invoice.client_id,
+        "client_name": client_name,
         "date": invoice.date,
         "due_date": invoice.due_date,
         "status": invoice.status,
@@ -340,13 +388,19 @@ async def create_invoice(
         # Calculer le montant restant
         remaining_amount = invoice_data.total
         
+        # Déterminer la date d'échéance par défaut à J+4 si non fournie
+        try:
+            final_due_date = invoice_data.due_date or (invoice_data.date + timedelta(days=4))
+        except Exception:
+            final_due_date = invoice_data.due_date or (datetime.utcnow() + timedelta(days=4))
+
         # Créer la facture
         db_invoice = Invoice(
             invoice_number=final_number,
             client_id=invoice_data.client_id,
             quotation_id=invoice_data.quotation_id,
             date=invoice_data.date,
-            due_date=invoice_data.due_date,
+            due_date=final_due_date,
             payment_method=invoice_data.payment_method,
             subtotal=invoice_data.subtotal,
             tax_rate=invoice_data.tax_rate,
@@ -467,24 +521,68 @@ async def create_invoice(
         try:
             for item_data in invoice_data.items:
                 if getattr(item_data, 'product_id', None):  # Seulement pour les produits réels
-                    # Récupérer le nom du produit
                     product = db.query(Product).filter(Product.product_id == item_data.product_id).first()
-                    if product:
-                        daily_sale = DailySale(
-                            client_id=invoice_data.client_id,
-                            client_name=client.name,
-                            product_id=item_data.product_id,
-                            product_name=item_data.product_name or product.name,
-                            quantity=item_data.quantity,
-                            unit_price=item_data.price,
-                            total_amount=item_data.total,
-                            sale_date=invoice_data.date.date(),
-                            payment_method=invoice_data.payment_method or "espece",
-                            invoice_id=db_invoice.invoice_id,
-                            notes=f"Vente automatique depuis facture {final_number}"
+                    if not product:
+                        continue
+
+                    # Préparer les infos de variante si applicable
+                    variant_id_val = None
+                    variant_imei_val = None
+                    variant_barcode_val = None
+                    variant_condition_val = None
+                    try:
+                        has_variants = (
+                            db.query(ProductVariant.variant_id)
+                            .filter(ProductVariant.product_id == product.product_id)
+                            .first()
+                            is not None
                         )
-                        db.add(daily_sale)
-            
+                        if has_variants:
+                            resolved_variant = None
+                            if getattr(item_data, 'variant_id', None):
+                                resolved_variant = (
+                                    db.query(ProductVariant)
+                                    .filter(ProductVariant.variant_id == item_data.variant_id)
+                                    .first()
+                                )
+                            elif getattr(item_data, 'variant_imei', None):
+                                imei_code = str(item_data.variant_imei).strip()
+                                if imei_code:
+                                    resolved_variant = (
+                                        db.query(ProductVariant)
+                                        .filter(
+                                            ProductVariant.product_id == product.product_id,
+                                            func.trim(ProductVariant.imei_serial) == imei_code,
+                                        )
+                                        .first()
+                                    )
+                            if resolved_variant is not None:
+                                variant_id_val = resolved_variant.variant_id
+                                variant_imei_val = resolved_variant.imei_serial
+                                variant_barcode_val = resolved_variant.barcode
+                                variant_condition_val = resolved_variant.condition
+                    except Exception:
+                        pass
+
+                    daily_sale = DailySale(
+                        client_id=invoice_data.client_id,
+                        client_name=client.name,
+                        product_id=item_data.product_id,
+                        product_name=item_data.product_name or product.name,
+                        variant_id=variant_id_val,
+                        variant_imei=variant_imei_val,
+                        variant_barcode=variant_barcode_val,
+                        variant_condition=variant_condition_val,
+                        quantity=item_data.quantity,
+                        unit_price=item_data.price,
+                        total_amount=item_data.total,
+                        sale_date=invoice_data.date.date(),
+                        payment_method=invoice_data.payment_method or "espece",
+                        invoice_id=db_invoice.invoice_id,
+                        notes=f"Vente automatique depuis facture {final_number}",
+                    )
+                    db.add(daily_sale)
+
             db.commit()
         except Exception as e:
             # Ne pas bloquer la création de facture si l'enregistrement des ventes quotidiennes échoue
@@ -885,6 +983,9 @@ async def update_invoice_status(
         invoice = db.query(Invoice).filter(Invoice.invoice_id == invoice_id).first()
         if not invoice:
             raise HTTPException(status_code=404, detail="Facture non trouvée")
+
+        if getattr(current_user, "role", "user") != "admin":
+            raise HTTPException(status_code=403, detail="Permissions insuffisantes")
         
         valid_statuses = ["en attente", "payée", "partiellement payée", "en retard", "annulée"]
         if status not in valid_statuses:
@@ -915,6 +1016,38 @@ class PaymentCreate(BaseModel):
     payment_date: Optional[datetime] = None
     reference: Optional[str] = None
     notes: Optional[str] = None
+
+def _recompute_invoice_payment_status(invoice: Invoice, db: Session) -> None:
+    try:
+        total_dec = Decimal(str(invoice.total or 0)).quantize(Decimal('1'))
+    except Exception:
+        total_dec = Decimal('0')
+
+    try:
+        payments = db.query(InvoicePayment).filter(InvoicePayment.invoice_id == invoice.invoice_id).all()
+    except Exception:
+        payments = []
+
+    paid_dec = Decimal('0')
+    for p in (payments or []):
+        try:
+            paid_dec += Decimal(str(p.amount or 0)).quantize(Decimal('1'))
+        except Exception:
+            continue
+
+    remaining_dec = total_dec - paid_dec
+    if remaining_dec < Decimal('0'):
+        remaining_dec = Decimal('0')
+
+    invoice.paid_amount = paid_dec
+    invoice.remaining_amount = remaining_dec
+
+    if total_dec > Decimal('0') and remaining_dec == Decimal('0'):
+        invoice.status = "payée"
+    elif paid_dec > Decimal('0'):
+        invoice.status = "partiellement payée"
+    else:
+        invoice.status = "en attente"
 
 @router.get("/next-number")
 async def get_next_invoice_number(
@@ -964,12 +1097,9 @@ async def add_payment(
         # Mettre à jour les montants de la facture
         invoice.paid_amount = Decimal(str(invoice.paid_amount or 0)) + amount_dec
         invoice.remaining_amount = remaining - amount_dec
-        
-        # Mettre à jour le statut
-        if invoice.remaining_amount == 0:
-            invoice.status = "payée"
-        elif invoice.paid_amount > 0:
-            invoice.status = "partiellement payée"
+
+        # Mettre à jour le statut de façon cohérente avec tous les paiements
+        _recompute_invoice_payment_status(invoice, db)
         
         db.commit()
         db.refresh(payment)
@@ -984,6 +1114,100 @@ async def add_payment(
     except Exception as e:
         db.rollback()
         logging.error(f"Erreur lors de l'ajout du paiement: {e}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
+
+@router.delete("/{invoice_id}/payments/{payment_id}")
+async def delete_payment(
+    invoice_id: int,
+    payment_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Supprimer un paiement d'une facture et recalculer le statut/montants.
+
+    Permet de corriger une facture marquée "payée" par erreur en retirant
+    un ou plusieurs paiements, puis en remettant la facture au bon état
+    (en attente / partiellement payée) selon les paiements restants.
+    """
+    try:
+        invoice = db.query(Invoice).filter(Invoice.invoice_id == invoice_id).first()
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Facture non trouvée")
+
+        payment = (
+            db.query(InvoicePayment)
+            .filter(InvoicePayment.payment_id == payment_id, InvoicePayment.invoice_id == invoice_id)
+            .first()
+        )
+        if not payment:
+            raise HTTPException(status_code=404, detail="Paiement non trouvé")
+
+        db.delete(payment)
+        db.flush()
+
+        _recompute_invoice_payment_status(invoice, db)
+
+        db.commit()
+        db.refresh(invoice)
+
+        _invoices_cache.clear()
+
+        return {
+            "message": "Paiement supprimé avec succès",
+            "invoice_id": invoice.invoice_id,
+            "status": invoice.status,
+            "paid_amount": float(invoice.paid_amount or 0),
+            "remaining_amount": float(invoice.remaining_amount or 0),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Erreur lors de la suppression du paiement: {e}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
+
+@router.post("/{invoice_id}/payments/reset")
+async def reset_payments(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Supprimer tous les paiements d'une facture et remettre le statut/montants à zéro.
+
+    Utile lorsqu'une facture a été marquée payée par erreur :
+    on vide les paiements puis on repasse automatiquement la facture à
+    "en attente" (ou partiellement payée si d'autres paiements sont recréés ensuite).
+    """
+    try:
+        invoice = db.query(Invoice).filter(Invoice.invoice_id == invoice_id).first()
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Facture non trouvée")
+
+        payments = db.query(InvoicePayment).filter(InvoicePayment.invoice_id == invoice_id).all()
+        for p in (payments or []):
+            db.delete(p)
+
+        db.flush()
+
+        _recompute_invoice_payment_status(invoice, db)
+
+        db.commit()
+        db.refresh(invoice)
+
+        _invoices_cache.clear()
+
+        return {
+            "message": "Paiements réinitialisés avec succès",
+            "invoice_id": invoice.invoice_id,
+            "status": invoice.status,
+            "paid_amount": float(invoice.paid_amount or 0),
+            "remaining_amount": float(invoice.remaining_amount or 0),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Erreur lors de la réinitialisation des paiements: {e}")
         raise HTTPException(status_code=500, detail="Erreur serveur")
 
 @router.delete("/{invoice_id}")

@@ -23,6 +23,8 @@
   function renderAll(payload){
     if(!payload) return renderError('Données indisponibles');
     const { client, summary, invoices, manual_debts } = payload;
+    const invoicesFiltered = (invoices||[]).filter(x => (x && x.status) !== 'paid');
+    const manualDebtsFiltered = (manual_debts||[]).filter(x => (x && x.status) !== 'paid');
 
     const hdr = document.getElementById('clientHeader');
     if(hdr){
@@ -50,7 +52,7 @@
 
     const invTbody = document.getElementById('invoicesTbody');
     if(invTbody){
-      const rows = (invoices||[]).map(inv=>{
+      const rows = (invoicesFiltered).map(inv=>{
         const items = (inv.items||[]).map(it=>`${escapeHtml(it.product_name)} × ${it.quantity} — ${formatCurrency(it.total)}`).join('<br>');
         const statusBadge = badgeFor(inv.status);
         return `<tr>
@@ -64,12 +66,12 @@
           <td class="small">${items||'-'}</td>
         </tr>`;
       }).join('');
-      invTbody.innerHTML = rows || `<tr><td colspan="8" class="text-center text-muted py-3">Aucune facture</td></tr>`;
+      invTbody.innerHTML = rows || `<tr><td colspan="8" class="text-center text-muted py-3">Aucune facture en attente</td></tr>`;
     }
 
     const mdTbody = document.getElementById('manualDebtsTbody');
     if(mdTbody){
-      const rows = (manual_debts||[]).map(d=>{
+      const rows = (manualDebtsFiltered).map(d=>{
         const statusBadge = badgeFor(d.status);
         return `<tr>
           <td><strong>${escapeHtml(d.reference||String(d.id))}</strong></td>
@@ -82,7 +84,7 @@
           <td class="small">${escapeHtml(d.description||'-')}</td>
         </tr>`;
       }).join('');
-      mdTbody.innerHTML = rows || `<tr><td colspan="8" class="text-center text-muted py-3">Aucune créance manuelle</td></tr>`;
+      mdTbody.innerHTML = rows || `<tr><td colspan="8" class="text-center text-muted py-3">Aucune créance manuelle en attente</td></tr>`;
     }
 
     const printBtn = document.getElementById('printBtn');

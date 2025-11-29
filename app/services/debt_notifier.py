@@ -19,7 +19,7 @@ class DebtNotifier:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._interval_seconds = int(os.getenv("DEBT_REMINDER_INTERVAL_SECONDS", "21600"))  # 6h
-        self._period_days = int(os.getenv("DEBT_REMINDER_PERIOD_DAYS", "7"))
+        self._period_days = int(os.getenv("DEBT_REMINDER_PERIOD_DAYS", "2"))
         self._dry_run = os.getenv("DEBT_REMINDER_DRY_RUN", "false").lower() == "true"
         self._default_cc = os.getenv("DEFAULT_COUNTRY_CODE", "+221")
 

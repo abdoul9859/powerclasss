@@ -106,6 +106,50 @@ class GoogleSheetsService:
         except Exception as e:
             raise Exception(f"Erreur lors de la récupération des données: {str(e)}")
 
+    def get_sheet_preview(self, spreadsheet_id: str, worksheet_name: str = 'Tableau1', limit: int = 10) -> Dict[str, any]:
+        """
+        Récupère un aperçu d'une feuille: en-têtes + premières lignes.
+
+        Returns:
+            {
+              'headers': [str, ...],
+              'rows': [[...], ...],
+              'suggested_imei_headers': [str, ...]
+            }
+        """
+        if not self.client:
+            if not self.authenticate():
+                raise Exception("Impossible de s'authentifier avec Google Sheets")
+
+        try:
+            spreadsheet = self.client.open_by_key(spreadsheet_id)
+            worksheet = spreadsheet.worksheet(worksheet_name)
+
+            all_values = worksheet.get_all_values()
+            if not all_values:
+                return {'headers': [], 'rows': [], 'suggested_imei_headers': []}
+
+            headers = all_values[0]
+            rows = all_values[1:limit+1]
+
+            # Suggestion: toutes les colonnes contenant "imei"
+            def _norm(s: str) -> str:
+                import unicodedata, re
+                s = (s or '').strip().lower()
+                s = ''.join(c for c in unicodedata.normalize('NFKD', s) if not unicodedata.combining(c))
+                s = re.sub(r"\s+", " ", s)
+                return s
+
+            suggested = [h for h in headers if 'imei' in _norm(h)]
+
+            return {
+                'headers': headers,
+                'rows': rows,
+                'suggested_imei_headers': suggested
+            }
+        except Exception as e:
+            raise Exception(f"Erreur lors de la récupération de l'aperçu: {str(e)}")
+
     def _normalize_value(self, value: any, field_type: str) -> any:
         """
         Normalise une valeur selon le type de champ
@@ -221,7 +265,7 @@ class GoogleSheetsService:
             print(f"❌ Erreur lors de la sauvegarde de l'image: {e}")
             return None
 
-    def map_sheet_row_to_product(self, row: Dict) -> Dict:
+    def map_sheet_row_to_product(self, row: Dict, imei_columns: Optional[List[str]] = None, custom_mapping: Optional[Dict[str, str]] = None) -> Dict:
         """
         Mappe une ligne Google Sheets vers un dict de produit
 
@@ -253,15 +297,26 @@ class GoogleSheetsService:
         except Exception:
             normalized_row = {}
 
+        # Préparer le mapping (peut être surchargé)
+        base_mapping = dict(self.COLUMN_MAPPING)
+        if custom_mapping:
+            try:
+                base_mapping.update(custom_mapping)
+            except Exception:
+                pass
         # Precompute normalized mapping keys
-        normalized_mapping = { _norm_header(k): v for k, v in self.COLUMN_MAPPING.items() }
+        normalized_mapping = { _norm_header(k): v for k, v in base_mapping.items() }
 
         for sheet_col, db_field in normalized_mapping.items():
+            # IMEI traité séparément si imei_columns fourni
+            if db_field == 'imei_serial' and imei_columns:
+                continue
+
             # tolerant value fetch: prefer normalized match, fallback to exact
             value = normalized_row.get(sheet_col)
             if value is None:
                 # try exact header key if present
-                original_key = next((orig for orig in self.COLUMN_MAPPING.keys() if _norm_header(orig) == sheet_col), None)
+                original_key = next((orig for orig in base_mapping.keys() if _norm_header(orig) == sheet_col), None)
                 if original_key is not None:
                     value = (row or {}).get(original_key)
 
@@ -271,12 +326,39 @@ class GoogleSheetsService:
             elif db_field == 'quantity':
                 product_data[db_field] = self._normalize_value(value, 'integer')
             elif db_field == 'image_path':
-                # Stocker l'URL pour téléchargement après avoir le nom du produit
                 image_url_to_download = self._normalize_value(value, 'text')
             elif db_field == 'imei_serial':
                 product_data[db_field] = self._normalize_value(value, 'text')
             else:
                 product_data[db_field] = self._normalize_value(value, 'text')
+
+        # Si plusieurs colonnes IMEI sont spécifiées, collecter jusqu'à 3 IMEIs non vides
+        if imei_columns:
+            def _get_val(col_name: str):
+                key = _norm_header(col_name)
+                v = normalized_row.get(key)
+                if v is None:
+                    v = (row or {}).get(col_name)
+                return v
+            imei_values: List[str] = []
+            for col in imei_columns:
+                try:
+                    val = _get_val(col)
+                    if val is None:
+                        continue
+                    s = str(val).strip()
+                    if not s:
+                        continue
+                    # Eviter les doublons et limiter à 3
+                    if s not in imei_values:
+                        imei_values.append(s)
+                        if len(imei_values) >= 3:
+                            break
+                except Exception:
+                    continue
+            # Conserver la compatibilité: premier IMEI comme champ simple
+            product_data['imei_serial'] = self._normalize_value(imei_values[0] if imei_values else None, 'text')
+            product_data['imei_serials'] = imei_values
         
         # Télécharger l'image maintenant qu'on a le nom du produit
         if image_url_to_download:
@@ -306,7 +388,8 @@ class GoogleSheetsService:
         return product_data
 
     def sync_products(self, db: Session, spreadsheet_id: str, worksheet_name: str = 'Tableau1',
-                     update_existing: bool = False) -> Dict[str, int]:
+                     update_existing: bool = False, imei_columns: Optional[List[str]] = None,
+                     custom_mapping: Optional[Dict[str, str]] = None) -> Dict[str, int]:
         """
         Synchronise les produits depuis Google Sheets vers la base de données
 
@@ -342,7 +425,7 @@ class GoogleSheetsService:
             for idx, row in enumerate(rows, start=1):
                 try:
                     # Mappe la ligne vers un dict de produit
-                    product_data = self.map_sheet_row_to_product(row)
+                    product_data = self.map_sheet_row_to_product(row, imei_columns=imei_columns, custom_mapping=custom_mapping)
 
                     # Ignore les lignes sans nom de produit
                     if not product_data.get('name'):
@@ -361,49 +444,63 @@ class GoogleSheetsService:
                         # 1) Trouver ou créer le produit parent via Product.barcode
                         existing_product = db.query(Product).filter(Product.barcode == product_data['barcode']).first()
                         if existing_product:
+                            # Si on ne souhaite pas mettre à jour les produits existants,
+                            # ignorer simplement cette ligne.
+                            if not update_existing:
+                                stats['skipped'] += 1
+                                continue
+
                             # Mettre à jour quelques champs de base si demandé
                             if update_existing:
                                 for key in ['name','description','price','wholesale_price','purchase_price','category','brand','model','condition','image_path','notes']:
                                     val = product_data.get(key)
                                     if val is not None and val != '':
                                         setattr(existing_product, key, val)
-                            # Créer la variante si l'IMEI n'existe pas déjà
-                            imei = product_data.get('imei_serial')
-                            if imei:
+                            # Créer les variantes pour chaque IMEI non existant
+                            imeis: List[str] = product_data.get('imei_serials') or ([] if not product_data.get('imei_serial') else [product_data.get('imei_serial')])
+                            added = 0
+                            if imeis:
                                 from app.database import ProductVariant
-                                already = db.query(ProductVariant).filter(ProductVariant.imei_serial == imei).first()
-                                if not already:
-                                    v = ProductVariant(
-                                        product_id=existing_product.product_id,
-                                        imei_serial=imei,
-                                        barcode=None,
-                                        condition=product_data.get('condition') or existing_product.condition
-                                    )
-                                    db.add(v)
-                                    # Incrémente le stock du produit parent
-                                    try:
-                                        existing_product.quantity = (existing_product.quantity or 0) + 1
-                                    except Exception:
-                                        pass
-                                    # Mouvement de stock IN unitaire
-                                    sm = StockMovement(
-                                        product_id=existing_product.product_id,
-                                        quantity=1,
-                                        movement_type='IN',
-                                        reference_type='GOOGLE_SHEETS_IMPORT',
-                                        notes=f"Import IMEI {imei} depuis Google Sheets",
-                                        unit_price=existing_product.purchase_price or Decimal('0.00')
-                                    )
-                                    db.add(sm)
+                                for imei in imeis:
+                                    if not imei:
+                                        continue
+                                    already = db.query(ProductVariant).filter(ProductVariant.imei_serial == imei).first()
+                                    if not already:
+                                        v = ProductVariant(
+                                            product_id=existing_product.product_id,
+                                            imei_serial=imei,
+                                            barcode=None,
+                                            condition=product_data.get('condition') or existing_product.condition
+                                        )
+                                        db.add(v)
+                                        # Incrémente le stock du produit parent
+                                        try:
+                                            existing_product.quantity = (existing_product.quantity or 0) + 1
+                                        except Exception:
+                                            pass
+                                        # Mouvement de stock IN unitaire
+                                        sm = StockMovement(
+                                            product_id=existing_product.product_id,
+                                            quantity=1,
+                                            movement_type='IN',
+                                            reference_type='GOOGLE_SHEETS_IMPORT',
+                                            notes=f"Import IMEI {imei} depuis Google Sheets",
+                                            unit_price=existing_product.purchase_price or Decimal('0.00')
+                                        )
+                                        db.add(sm)
+                                        added += 1
                             db.commit()
-                            stats['updated'] += 1
+                            stats['updated'] += 1 if added > 0 or update_existing else 0
+                            stats['skipped'] += 0 if added > 0 or update_existing else 1
                         else:
                             # Créer le produit parent avec le code-barres partagé
                             from app.database import ProductVariant
+                            imeis: List[str] = product_data.get('imei_serials') or ([] if not product_data.get('imei_serial') else [product_data.get('imei_serial')])
+                            qty_init = max(1, len(imeis)) if imeis else 1
                             parent = Product(
                                 name=product_data.get('name'),
                                 description=product_data.get('description'),
-                                quantity=1,  # commence avec 1 variante
+                                quantity=qty_init,  # commence avec N variantes
                                 price=product_data.get('price') or Decimal('0.00'),
                                 wholesale_price=product_data.get('wholesale_price'),
                                 purchase_price=product_data.get('purchase_price') or Decimal('0.00'),
@@ -419,25 +516,48 @@ class GoogleSheetsService:
                             )
                             db.add(parent)
                             db.flush()
-                            # Créer la première variante
-                            imei = product_data.get('imei_serial')
-                            var = ProductVariant(
-                                product_id=parent.product_id,
-                                imei_serial=imei,
-                                barcode=None,
-                                condition=parent.condition
-                            )
-                            db.add(var)
-                            # Mouvement de stock IN initial (1)
-                            sm = StockMovement(
-                                product_id=parent.product_id,
-                                quantity=1,
-                                movement_type='IN',
-                                reference_type='GOOGLE_SHEETS_IMPORT',
-                                notes='Import initial variante depuis Google Sheets',
-                                unit_price=parent.purchase_price or Decimal('0.00')
-                            )
-                            db.add(sm)
+                            # Créer les variantes pour chaque IMEI (ou une variante vide si pas d'IMEI)
+                            created_any = False
+                            if imeis:
+                                for imei in imeis:
+                                    if not imei:
+                                        continue
+                                    var = ProductVariant(
+                                        product_id=parent.product_id,
+                                        imei_serial=imei,
+                                        barcode=None,
+                                        condition=parent.condition
+                                    )
+                                    db.add(var)
+                                    # Mouvement de stock IN unitaire
+                                    sm = StockMovement(
+                                        product_id=parent.product_id,
+                                        quantity=1,
+                                        movement_type='IN',
+                                        reference_type='GOOGLE_SHEETS_IMPORT',
+                                        notes=f'Import initial variante IMEI {imei} depuis Google Sheets',
+                                        unit_price=parent.purchase_price or Decimal('0.00')
+                                    )
+                                    db.add(sm)
+                                    created_any = True
+                            else:
+                                # Fallback: une variante sans IMEI
+                                var = ProductVariant(
+                                    product_id=parent.product_id,
+                                    imei_serial=product_data.get('imei_serial'),
+                                    barcode=None,
+                                    condition=parent.condition
+                                )
+                                db.add(var)
+                                sm = StockMovement(
+                                    product_id=parent.product_id,
+                                    quantity=1,
+                                    movement_type='IN',
+                                    reference_type='GOOGLE_SHEETS_IMPORT',
+                                    notes='Import initial variante depuis Google Sheets',
+                                    unit_price=parent.purchase_price or Decimal('0.00')
+                                )
+                                db.add(sm)
                             db.commit()
                             stats['created'] += 1
                     else:

@@ -1508,6 +1508,13 @@ async function viewProduct(productId) {
                             <span class="badge ${variant.is_sold ? 'bg-danger' : 'bg-success'}">
                                 ${variant.is_sold ? 'Vendu' : 'Disponible'}
                             </span>
+                            ${variant.is_sold && variant.imei_serial ? `
+                                <button class="btn btn-sm btn-outline-primary ms-2"
+                                        onclick="openVariantInvoice(${product.product_id}, '${String(variant.imei_serial).replace(/'/g, "\\'")}')">
+                                    <i class="bi bi-file-text"></i>
+                                    Facture
+                                </button>
+                            ` : ''}
                         </td>
                     </tr>
                 `;
@@ -1546,6 +1553,37 @@ async function viewProduct(productId) {
     } catch (error) {
         console.error('Erreur lors du chargement des détails:', error);
         showAlert('Erreur lors du chargement des détails du produit', 'danger');
+    }
+}
+
+async function openVariantInvoice(productId, imeiSerial) {
+    try {
+        if (!productId || !imeiSerial) {
+            showAlert('Informations de variante manquantes', 'warning');
+            return;
+        }
+        const url = `/api/products/id/${productId}/sales/invoices-by-serial?imei=${encodeURIComponent(imeiSerial)}`;
+        const res = await apiRequest(url);
+        const payload = res && res.data ? res.data : {};
+        const invoices = Array.isArray(payload.invoices) ? payload.invoices : [];
+        if (!invoices.length) {
+            showAlert("Aucune facture trouvée pour cette variante", 'warning');
+            return;
+        }
+        const invoice = invoices[0];
+        if (!invoice.invoice_id) {
+            showAlert("Facture introuvable pour cette variante", 'warning');
+            return;
+        }
+        try {
+            sessionStorage.setItem('open_invoice_detail_id', String(invoice.invoice_id));
+        } catch (e) {
+            console.warn('Impossible de stocker open_invoice_detail_id dans sessionStorage:', e);
+        }
+        window.location.href = '/invoices';
+    } catch (e) {
+        console.error('Erreur lors de la récupération de la facture liée à la variante:', e);
+        showAlert("Erreur lors de la récupération de la facture", 'danger');
     }
 }
 

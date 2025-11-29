@@ -8,7 +8,7 @@ let products = [];
 let productVariantsByProductId = new Map(); // product_id -> [{variant_id, imei_serial, barcode, is_sold}]
 let invoiceItems = [];
 // Tri courant (pour la liste principale)
-let currentSort = { by: 'date', dir: 'desc' };
+let currentSort = { by: 'created_at', dir: 'desc' };
 // Quantités d'origine issues du devis (si disponibles) par product_id
 let quoteQtyByProductId = new Map();
 // Helpers to track used IMEIs across rows
@@ -36,6 +36,19 @@ function computeAvailableStock(product) {
         return Number(product.quantity || 0);
     } catch (e) {
         return 0;
+    }
+}
+
+async function resetInvoicePaymentsFromDetail(invoiceId) {
+    try {
+        if (!invoiceId) return;
+        if (!confirm('Réinitialiser tous les paiements de cette facture ?')) return;
+        await axios.post(`/api/invoices/${invoiceId}/payments/reset`);
+        showSuccess('Paiements réinitialisés');
+        await loadInvoiceDetail(invoiceId);
+    } catch (error) {
+        console.error('Erreur réinitialisation paiements:', error);
+        showError(error?.response?.data?.detail || 'Erreur lors de la réinitialisation des paiements');
     }
 }
 
@@ -345,7 +358,7 @@ function setDefaultDates() {
     
     // Date d'échéance par défaut (30 jours)
     const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + 30);
+    dueDate.setDate(dueDate.getDate() + 4);
     const dueDateInput = document.getElementById('dueDate');
     if (dueDateInput) dueDateInput.value = dueDate.toISOString().split('T')[0];
 }
@@ -1775,6 +1788,24 @@ function viewInvoice(invoiceId) {
 }
 
 function editInvoice(invoiceId) {
+    try {
+        const detailModalEl = document.getElementById('invoiceDetailModal');
+        if (detailModalEl) {
+            const existing = bootstrap.Modal.getInstance(detailModalEl) || new bootstrap.Modal(detailModalEl);
+            existing.hide();
+            if (typeof existing.dispose === 'function') {
+                existing.dispose();
+            }
+            detailModalEl.classList.remove('show');
+            detailModalEl.setAttribute('aria-hidden', 'true');
+            detailModalEl.style.display = 'none';
+            try {
+                document.body.classList.remove('modal-open');
+                document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+            } catch (e) { /* ignore */ }
+        }
+    } catch (e) { /* ignore */ }
+
     preloadInvoiceIntoForm(invoiceId).catch(() => showError('Impossible de charger la facture pour édition'));
 }
 
@@ -1940,7 +1971,7 @@ async function loadInvoiceDetail(invoiceId) {
         <div class=\"mb-2\"><strong>Paiements:</strong> ${inv.payments.length} paiement(s)</div>
         <div class=\"table-responsive\"> 
             <table class=\"table table-sm\"> 
-                <thead><tr><th>Date</th><th class=\"text-end\">Montant</th><th>Mode</th><th>Réf.</th></tr></thead>
+                <thead><tr><th>Date</th><th class=\"text-end\">Montant</th><th>Mode</th><th>Réf.</th><th></th></tr></thead>
                 <tbody>
                 ${inv.payments.map(p => `
                     <tr>
@@ -1948,6 +1979,11 @@ async function loadInvoiceDetail(invoiceId) {
                         <td class=\"text-end\">${formatCurrency(p.amount || 0)}</td>
                         <td>${escapeHtml(p.payment_method || '-')}</td>
                         <td>${escapeHtml(p.reference || '-')}</td>
+                        <td class=\"text-end\">
+                            <button type=\"button\" class=\"btn btn-sm btn-outline-danger\" title=\"Supprimer le paiement\" onclick=\"deletePaymentFromInvoiceDetail(${p.payment_id || 0}, ${invoiceId})\">
+                                <i class=\"bi bi-trash\"></i>
+                            </button>
+                        </td>
                     </tr>
                 `).join('')}
                 </tbody>
@@ -2021,6 +2057,19 @@ async function loadInvoiceDetail(invoiceId) {
     if (modalEl) {
         modalEl.dataset.invoiceId = String(invoiceId);
         new bootstrap.Modal(modalEl).show();
+    }
+}
+
+async function deletePaymentFromInvoiceDetail(paymentId, invoiceId) {
+    try {
+        if (!paymentId || !invoiceId) return;
+        if (!confirm('Supprimer ce paiement ?')) return;
+        await axios.delete(`/api/invoices/${invoiceId}/payments/${paymentId}`);
+        showSuccess('Paiement supprimé');
+        await loadInvoiceDetail(invoiceId);
+    } catch (error) {
+        console.error('Erreur suppression paiement:', error);
+        showError(error?.response?.data?.detail || 'Erreur lors de la suppression du paiement');
     }
 }
 

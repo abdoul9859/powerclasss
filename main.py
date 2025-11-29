@@ -4,6 +4,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 import uvicorn
 import os
@@ -328,10 +329,12 @@ async def client_debts_print_page(request: Request, client_id: int, db: Session 
     if not cl:
         raise HTTPException(status_code=404, detail="Client non trouvé")
     today = _date.today()
+    remaining_sql = func.coalesce(_Invoice.remaining_amount, _Invoice.total - func.coalesce(_Invoice.paid_amount, 0))
     invs = (
         db.query(_Invoice)
         .options(joinedload(_Invoice.items))
         .filter(_Invoice.client_id == client_id)
+        .filter(remaining_sql > 0)
         .order_by(_Invoice.date.desc())
         .all()
     )
@@ -363,9 +366,11 @@ async def client_debts_print_page(request: Request, client_id: int, db: Session 
                 } for it in (inv.items or [])
             ]
         })
+    remaining_cd = func.coalesce(_ClientDebt.remaining_amount, _ClientDebt.amount - func.coalesce(_ClientDebt.paid_amount, 0))
     cds = (
         db.query(_ClientDebt)
         .filter(_ClientDebt.client_id == client_id)
+        .filter(remaining_cd > 0)
         .order_by(_ClientDebt.date.desc())
         .all()
     )

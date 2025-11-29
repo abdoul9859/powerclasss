@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 from ..database import (
     get_db, Product, ProductVariant, ProductVariantAttribute, StockMovement, Category,
-    CategoryAttribute, CategoryAttributeValue, UserSettings
+    CategoryAttribute, CategoryAttributeValue, UserSettings, DailySale, Invoice, Client
 )
 from ..schemas import (
     ProductCreate, ProductUpdate, ProductResponse, ProductVariantCreate, StockMovementCreate,
@@ -142,6 +142,89 @@ async def get_sold_variants(
         raise
     except Exception as e:
         logging.error(f"Erreur lors de la récupération des variantes vendues: {e}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
+
+@router.get("/id/{product_id}/sales/invoices-by-serial")
+async def get_product_invoices_by_serial(
+    product_id: int,
+    imei: Optional[str] = Query(None, description="IMEI/numéro de série de la variante"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """Retourner les factures liées à un produit (et éventuellement à un IMEI précis).
+
+    Stratégie:
+    - On s'appuie sur la table DailySale qui contient product_id, variant_imei et invoice_id.
+    - On renvoie une liste d'objets facture légère (id, numéro, client, date, total) ordonnée
+      par date de vente décroissante.
+    """
+    try:
+        # Vérifier que le produit existe
+        product = db.query(Product).filter(Product.product_id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Produit non trouvé")
+
+        base_q = (
+            db.query(DailySale, Invoice, Client.name.label("client_name"))
+            .join(Invoice, DailySale.invoice_id == Invoice.invoice_id, isouter=True)
+            .join(Client, Client.client_id == Invoice.client_id, isouter=True)
+            .filter(DailySale.product_id == product_id)
+        )
+
+        q = base_q
+        if imei:
+            imei_clean = imei.strip()
+            if imei_clean:
+                q = q.filter(func.trim(DailySale.variant_imei) == imei_clean)
+
+        rows = (
+            q.order_by(DailySale.sale_date.desc(), DailySale.sale_id.desc())
+            .limit(50)
+            .all()
+        )
+
+        # Si aucune vente trouvée pour cet IMEI (ex: anciennes factures sans variant_imei enregistré),
+        # retomber sur toutes les ventes du produit pour ne pas renvoyer une liste vide.
+        if not rows:
+            rows = (
+                base_q.order_by(DailySale.sale_date.desc(), DailySale.sale_id.desc())
+                .limit(50)
+                .all()
+            )
+
+        # Dédoublonner par facture
+        seen_ids: set[int] = set()
+        invoices_data: list[dict] = []
+        for sale, inv, client_name in rows:
+            if not inv:
+                continue
+            if inv.invoice_id in seen_ids:
+                continue
+            seen_ids.add(inv.invoice_id)
+            invoices_data.append(
+                {
+                    "invoice_id": inv.invoice_id,
+                    "invoice_number": inv.invoice_number,
+                    "client_id": inv.client_id,
+                    "client_name": client_name or "",
+                    "date": inv.date,
+                    "total": float(inv.total or 0),
+                    "remaining_amount": float(inv.remaining_amount or 0),
+                    "status": inv.status,
+                    "sale_date": sale.sale_date,
+                }
+            )
+
+        return {
+            "product_id": product_id,
+            "imei": imei,
+            "invoices": invoices_data,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erreur lors de la récupération des factures liées au produit: {e}")
         raise HTTPException(status_code=500, detail="Erreur serveur")
 
 # Cache simple pour accélérer les endpoints produits (similaire au dashboard)

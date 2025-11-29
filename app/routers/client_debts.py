@@ -24,10 +24,12 @@ async def get_client_debts(
     if not cl:
         raise HTTPException(status_code=404, detail="Client non trouvé")
 
+    remaining_sql = func.coalesce(Invoice.remaining_amount, Invoice.total - func.coalesce(Invoice.paid_amount, 0))
     inv_q = (
         db.query(Invoice)
         .options(joinedload(Invoice.items))
         .filter(Invoice.client_id == client_id)
+        .filter(remaining_sql > 0)
         .order_by(Invoice.date.desc())
     )
     if date_from:
@@ -74,7 +76,13 @@ async def get_client_debts(
             "items": items,
         })
 
-    cd_q = db.query(ClientDebt).filter(ClientDebt.client_id == client_id).order_by(ClientDebt.date.desc())
+    remaining_cd = func.coalesce(ClientDebt.remaining_amount, ClientDebt.amount - func.coalesce(ClientDebt.paid_amount, 0))
+    cd_q = (
+        db.query(ClientDebt)
+        .filter(ClientDebt.client_id == client_id)
+        .filter(remaining_cd > 0)
+        .order_by(ClientDebt.date.desc())
+    )
     if date_from:
         try:
             cd_q = cd_q.filter(ClientDebt.date >= date_from)

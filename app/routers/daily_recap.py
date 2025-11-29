@@ -12,6 +12,8 @@ from ..database import (
     DailyPurchase
 )
 from ..auth import get_current_user
+from .dashboard import get_dashboard_stats
+from .debts import get_debts_stats
 
 router = APIRouter(prefix="/api/daily-recap", tags=["daily-recap"])
 
@@ -176,6 +178,27 @@ async def get_daily_recap_stats(
         # Chiffre d'affaires encaissé net (aligné avec la caisse): paiements reçus - achats quotidiens
         net_revenue = float(total_payments) - float(total_daily_purchases)
         
+        # === STATS COMPLÉMENTAIRES (DETTES, DASHBOARD) ===
+        # On réutilise les endpoints internes pour ne pas dupliquer la logique métier.
+        try:
+            dashboard_stats = await get_dashboard_stats(
+                force_refresh=False,
+                db=db,
+                current_user=current_user
+            )
+        except Exception as e:
+            logging.error(f"Erreur lors du chargement des stats dashboard dans daily_recap: {e}")
+            dashboard_stats = None
+
+        try:
+            debts_stats = await get_debts_stats(
+                current_user=current_user,
+                db=db
+            )
+        except Exception as e:
+            logging.error(f"Erreur lors du chargement des stats dettes dans daily_recap: {e}")
+            debts_stats = None
+
         # === PRÉPARATION DES DONNÉES ===
         return {
             "date": recap_date.isoformat(),
@@ -326,7 +349,11 @@ async def get_daily_recap_stats(
                     }
                     for dp in daily_purchases
                 ]
-            }
+            },
+            # Dettes (clients et fournisseurs)
+            "debts": debts_stats or {},
+            # Stats avancées / Dashboard global
+            "dashboard": dashboard_stats or {}
         }
         
     except Exception as e:

@@ -11,6 +11,14 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Event listener pour le changement de date
     document.getElementById('recapDate').addEventListener('change', loadDailyRecap);
+    
+    // Initialiser les dates du résumé de période par défaut sur aujourd'hui
+    try {
+        const periodStart = document.getElementById('periodStart');
+        const periodEnd = document.getElementById('periodEnd');
+        if (periodStart) periodStart.value = today;
+        if (periodEnd) periodEnd.value = today;
+    } catch (e) {}
 });
 
 async function loadDailyRecap() {
@@ -37,6 +45,9 @@ async function loadDailyRecap() {
         updateDailyPurchases(data.daily_purchases);
         updateQuickStats(data);
         updateDetailedTables(data);
+        updateBankTables(data.finances);
+        updateDebtsSection(data.debts || {});
+        updateDashboardSection(data.dashboard || {});
         
         hideLoading();
         
@@ -44,6 +55,143 @@ async function loadDailyRecap() {
         console.error('Erreur lors du chargement du récap:', error);
         showError('Erreur lors du chargement du récap quotidien');
         hideLoading();
+    }
+}
+
+// Helpers de navigation de date
+function setRecapDateToday() {
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        const input = document.getElementById('recapDate');
+        if (!input) return;
+        input.value = today;
+        loadDailyRecap();
+    } catch (e) { console.error(e); }
+}
+
+// Section Clients & Dettes / Achats & Fournisseurs / Produits & Stock / KPIs avancés
+function updateDebtsSection(debts) {
+    try {
+        if (!debts || typeof debts !== 'object') debts = {};
+        const clientRemaining = document.getElementById('debtsClientRemaining');
+        const supplierRemaining = document.getElementById('debtsSupplierRemaining');
+        const totalRemaining = document.getElementById('debtsTotalRemaining');
+        const overdueAmount = document.getElementById('debtsOverdueAmount');
+        const overdueCount = document.getElementById('debtsOverdueCount');
+
+        if (clientRemaining) clientRemaining.textContent = formatCurrency(debts.client_total_remaining || 0);
+        if (supplierRemaining) supplierRemaining.textContent = formatCurrency(debts.supplier_total_remaining || 0);
+        if (totalRemaining) totalRemaining.textContent = formatCurrency(debts.total_remaining || 0);
+        if (overdueAmount) overdueAmount.textContent = formatCurrency(debts.overdue_amount || 0);
+        if (overdueCount) overdueCount.textContent = `${debts.overdue_count || 0} dettes`;
+
+        const supplierDebtsRemaining = document.getElementById('supplierDebtsRemaining');
+        const supplierDebtsCount = document.getElementById('supplierDebtsCount');
+        if (supplierDebtsRemaining) supplierDebtsRemaining.textContent = formatCurrency(debts.supplier_total_remaining || 0);
+        if (supplierDebtsCount) supplierDebtsCount.textContent = String(debts.supplier_debts_count || 0);
+    } catch (e) { console.error(e); }
+}
+
+function updateDashboardSection(dashboard) {
+    try {
+        if (!dashboard || typeof dashboard !== 'object') dashboard = {};
+
+        // Produits & Stock (global)
+        const totalStockEl = document.getElementById('dashboardTotalStock');
+        const criticalStockEl = document.getElementById('dashboardCriticalStock');
+        const outOfStockEl = document.getElementById('dashboardOutOfStock');
+        const lowStockEl = document.getElementById('dashboardLowStock');
+        if (totalStockEl) totalStockEl.textContent = String(dashboard.total_stock ?? '-');
+        if (criticalStockEl) criticalStockEl.textContent = String(dashboard.critical_stock ?? '-');
+        if (outOfStockEl) outOfStockEl.textContent = String(dashboard.out_of_stock ?? '-');
+        if (lowStockEl) lowStockEl.textContent = String(dashboard.low_stock ?? '-');
+
+        const topProductsBody = document.getElementById('topProductsTable');
+        if (topProductsBody) {
+            const list = Array.isArray(dashboard.top_products) ? dashboard.top_products : [];
+            topProductsBody.innerHTML = list.length ? list.map(p => `
+                <tr>
+                    <td>${escapeHtml(p.name || '-') }</td>
+                    <td>${formatCurrency(p.revenue || 0)}</td>
+                </tr>
+            `).join('') : '<tr><td colspan="2" class="text-center text-muted">Aucune donnée</td></tr>';
+        }
+
+        // Achats & Fournisseurs (mois)
+        const monthlyDailyPurchases = document.getElementById('monthlyDailyPurchases');
+        const supplierMonthlyPayments = document.getElementById('supplierMonthlyPayments');
+        if (monthlyDailyPurchases) monthlyDailyPurchases.textContent = formatCurrency(dashboard.monthly_daily_purchases || 0);
+        if (supplierMonthlyPayments) supplierMonthlyPayments.textContent = formatCurrency(dashboard.monthly_supplier_payments || 0);
+
+        // Indicateurs avancés
+        const monthlyRevenueEl = document.getElementById('dashboardMonthlyRevenue');
+        const unpaidAmountEl = document.getElementById('dashboardUnpaidAmount');
+        const avgTicketEl = document.getElementById('dashboardAvgTicket');
+        const conversionRateEl = document.getElementById('dashboardConversionRate');
+        const activeCustomersEl = document.getElementById('dashboardActiveCustomers');
+        if (monthlyRevenueEl) monthlyRevenueEl.textContent = formatCurrency(dashboard.monthly_revenue || 0);
+        if (unpaidAmountEl) unpaidAmountEl.textContent = formatCurrency(dashboard.unpaid_amount || 0);
+        if (avgTicketEl) avgTicketEl.textContent = formatCurrency(dashboard.avg_ticket || 0);
+        if (conversionRateEl) conversionRateEl.textContent = `${(dashboard.conversion_rate || 0).toFixed(1)} %`;
+        if (activeCustomersEl) activeCustomersEl.textContent = String(dashboard.active_customers || 0);
+
+        const paymentMethodsBody = document.getElementById('paymentMethodsTable');
+        if (paymentMethodsBody) {
+            const list = Array.isArray(dashboard.payment_methods) ? dashboard.payment_methods : [];
+            paymentMethodsBody.innerHTML = list.length ? list.map(pm => `
+                <tr>
+                    <td>${escapeHtml(pm.method || 'Non spécifié')}</td>
+                    <td>${formatCurrency(pm.amount || 0)}</td>
+                </tr>
+            `).join('') : '<tr><td colspan="2" class="text-center text-muted">Aucune donnée</td></tr>';
+        }
+    } catch (e) { console.error(e); }
+}
+
+function setRecapDateRelative(offsetDays) {
+    try {
+        const input = document.getElementById('recapDate');
+        if (!input || !input.value) { setRecapDateToday(); return; }
+        const current = new Date(input.value);
+        if (isNaN(current.getTime())) { setRecapDateToday(); return; }
+        current.setDate(current.getDate() + Number(offsetDays || 0));
+        const next = current.toISOString().split('T')[0];
+        input.value = next;
+        loadDailyRecap();
+    } catch (e) { console.error(e); }
+}
+
+// Résumé de période
+async function loadPeriodSummary() {
+    try {
+        const startInput = document.getElementById('periodStart');
+        const endInput = document.getElementById('periodEnd');
+        if (!startInput || !endInput) return;
+        const start = startInput.value;
+        const end = endInput.value;
+        if (!start || !end) {
+            showError('Veuillez choisir une date de début et une date de fin');
+            return;
+        }
+
+        const resp = await axios.get('/api/daily-recap/period-summary', {
+            params: { start_date: start, end_date: end }
+        });
+        const summary = resp.data || {};
+
+        try {
+            const daysEl = document.getElementById('periodDaysCount');
+            const payEl = document.getElementById('periodTotalPayments');
+            const invEl = document.getElementById('periodInvoicesCount');
+            const quoEl = document.getElementById('periodQuotationsCount');
+            if (daysEl) daysEl.textContent = String(summary.days_count ?? '-');
+            if (payEl) payEl.textContent = formatCurrency(summary.total_payments || 0);
+            if (invEl) invEl.textContent = String(summary.invoices_created ?? 0);
+            if (quoEl) quoEl.textContent = String(summary.quotations_created ?? 0);
+        } catch (e) { console.error(e); }
+    } catch (error) {
+        console.error('Erreur résumé période:', error);
+        showError('Erreur lors du chargement du résumé de période');
     }
 }
 
@@ -147,7 +295,11 @@ function updateInvoicesTable(invoices) {
     tbody.innerHTML = invoices.map(invoice => `
         <tr>
             <td>${invoice.time}</td>
-            <td><strong>${escapeHtml(invoice.number)}</strong></td>
+            <td>
+                <button type="button" class="btn btn-link btn-sm p-0" onclick="goToInvoiceFromRecap('${invoice.id || ''}', '${escapeHtml(invoice.number)}')">
+                    <strong>${escapeHtml(invoice.number)}</strong>
+                </button>
+            </td>
             <td>${escapeHtml(invoice.client_name)}</td>
             <td>${formatCurrency(invoice.total)}</td>
             <td>
@@ -170,7 +322,13 @@ function updatePaymentsTable(payments) {
     tbody.innerHTML = payments.map(payment => `
         <tr>
             <td>${payment.time}</td>
-            <td>${escapeHtml(payment.invoice_number || '')}</td>
+            <td>
+                ${payment.invoice_number ? `
+                    <button type="button" class="btn btn-link btn-sm p-0" onclick="goToInvoiceFromRecap('', '${escapeHtml(payment.invoice_number)}')">
+                        ${escapeHtml(payment.invoice_number)}
+                    </button>
+                ` : escapeHtml(payment.invoice_number || '')}
+            </td>
             <td><strong class="text-success">${formatCurrency(payment.amount)}</strong></td>
             <td>${escapeHtml(payment.method || 'Non spécifié')}</td>
         </tr>
@@ -188,7 +346,11 @@ function updateQuotationsTable(quotations) {
     tbody.innerHTML = quotations.map(quotation => `
         <tr>
             <td>${quotation.time}</td>
-            <td><strong>${escapeHtml(quotation.number)}</strong></td>
+            <td>
+                <button type="button" class="btn btn-link btn-sm p-0" onclick="goToQuotationFromRecap('${quotation.id || ''}', '${escapeHtml(quotation.number)}')">
+                    <strong>${escapeHtml(quotation.number)}</strong>
+                </button>
+            </td>
             <td>${escapeHtml(quotation.client_name)}</td>
             <td>${formatCurrency(quotation.total)}</td>
             <td>
@@ -234,6 +396,40 @@ function updateStockExitsTable(exits) {
             <td>${escapeHtml(exit.reference || '')}</td>
         </tr>
     `).join('');
+}
+
+function updateBankTables(finances) {
+    if (!finances) return;
+    try {
+        const entriesBody = document.getElementById('bankEntriesTable');
+        const exitsBody = document.getElementById('bankExitsTable');
+
+        if (entriesBody) {
+            const list = Array.isArray(finances.bank_entries_list) ? finances.bank_entries_list : [];
+            entriesBody.innerHTML = list.length ? list.map(t => `
+                <tr>
+                    <td>${escapeHtml(t.motif || '')}</td>
+                    <td>${escapeHtml(t.description || '')}</td>
+                    <td class="fw-semibold">${formatCurrency(t.amount || 0)}</td>
+                    <td>${escapeHtml(t.method || '')}</td>
+                    <td>${escapeHtml(t.reference || '')}</td>
+                </tr>
+            `).join('') : '<tr><td colspan="5" class="text-center text-muted">Aucune entrée bancaire</td></tr>';
+        }
+
+        if (exitsBody) {
+            const list = Array.isArray(finances.bank_exits_list) ? finances.bank_exits_list : [];
+            exitsBody.innerHTML = list.length ? list.map(t => `
+                <tr>
+                    <td>${escapeHtml(t.motif || '')}</td>
+                    <td>${escapeHtml(t.description || '')}</td>
+                    <td class="fw-semibold">${formatCurrency(t.amount || 0)}</td>
+                    <td>${escapeHtml(t.method || '')}</td>
+                    <td>${escapeHtml(t.reference || '')}</td>
+                </tr>
+            `).join('') : '<tr><td colspan="5" class="text-center text-muted">Aucune sortie bancaire</td></tr>';
+        }
+    } catch (e) { console.error(e); }
 }
 
 // Fonctions utilitaires
@@ -322,4 +518,23 @@ function showSuccess(message) {
     } else {
         console.log(message);
     }
+}
+
+function goToInvoiceFromRecap(invoiceId, invoiceNumber) {
+    try {
+        const val = (invoiceNumber && String(invoiceNumber).trim()) || (invoiceId && String(invoiceId).trim());
+        if (!val) return;
+        sessionStorage.setItem('invoiceSearchQuery', val);
+    } catch (e) {}
+    window.location.href = '/invoices';
+}
+
+function goToQuotationFromRecap(quotationId, quotationNumber) {
+    try {
+        const val = (quotationNumber && String(quotationNumber).trim()) || (quotationId && String(quotationId).trim());
+        if (!val) return;
+        // On utilisera une recherche côté page devis via le numéro
+        sessionStorage.setItem('quotationSearchQuery', val);
+    } catch (e) {}
+    window.location.href = '/quotations';
 }

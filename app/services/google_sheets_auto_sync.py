@@ -28,37 +28,9 @@ class GoogleSheetsAutoSync:
         
     def start(self):
         """Démarre la synchronisation automatique"""
-        if self.is_running:
-            logger.warning("La synchronisation automatique est déjà en cours")
-            return False
-            
-        # Vérifier que la configuration est présente
-        if not self._check_configuration():
-            logger.error("Configuration Google Sheets incomplète, synchronisation automatique désactivée")
-            return False
-            
-        try:
-            # Ajouter le job de synchronisation
-            self.scheduler.add_job(
-                func=self._sync_from_sheets,
-                trigger=IntervalTrigger(minutes=self.sync_interval_minutes),
-                id='google_sheets_sync',
-                name='Synchronisation Google Sheets',
-                replace_existing=True
-            )
-            
-            self.scheduler.start()
-            self.is_running = True
-            logger.info(f"✅ Synchronisation automatique démarrée (intervalle: {self.sync_interval_minutes} minutes)")
-            
-            # Effectuer une synchronisation immédiate
-            self._sync_from_sheets()
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Erreur lors du démarrage de la synchronisation automatique: {str(e)}")
-            return False
+        # Synchronisation automatique désactivée : on ne programme plus de job périodique.
+        logger.info("Synchronisation automatique Google Sheets désactivée - utiliser l'endpoint /api/google-sheets/sync pour un import manuel uniquement.")
+        return False
     
     def stop(self):
         """Arrête la synchronisation automatique"""
@@ -211,16 +183,9 @@ class GoogleSheetsAutoSync:
     
     def trigger_sync_now(self):
         """Déclenche une synchronisation immédiate"""
-        if not self.is_running:
-            logger.warning("La synchronisation automatique n'est pas démarrée")
-            return False
-        
-        try:
-            self._sync_from_sheets()
-            return True
-        except Exception as e:
-            logger.error(f"❌ Erreur lors de la synchronisation manuelle: {str(e)}")
-            return False
+        # Désactivé: l'import se fait uniquement via l'endpoint manuel /api/google-sheets/sync
+        logger.info("trigger_sync_now ignoré: la synchronisation automatique est désactivée")
+        return False
 
 
 # Instance globale du service

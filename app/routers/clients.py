@@ -4,7 +4,7 @@ from typing import List, Optional
 from sqlalchemy import func
 from ..database import get_db, Client, Invoice
 from ..schemas import ClientCreate, ClientUpdate, ClientResponse
-from ..auth import get_current_user
+from ..auth import get_current_user, require_any_role
 import logging
 
 router = APIRouter(prefix="/api/clients", tags=["clients"])
@@ -17,16 +17,22 @@ async def list_clients(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Lister les clients avec recherche"""
+    """Lister les clients avec recherche.
+    - Trie par défaut: plus récents d'abord (client_id DESC).
+    - Recherche sur name/email/phone (ilike).
+    """
     query = db.query(Client)
-    
+
     if search:
+        like = f"%{search}%"
         query = query.filter(
-            Client.name.ilike(f"%{search}%") |
-            Client.email.ilike(f"%{search}%") |
-            Client.phone.ilike(f"%{search}%")
+            Client.name.ilike(like) |
+            Client.email.ilike(like) |
+            Client.phone.ilike(like)
         )
-    
+
+    query = query.order_by(Client.client_id.desc())
+
     clients = query.offset(skip).limit(limit).all()
     return clients
 
@@ -159,7 +165,7 @@ async def update_client(
     client_id: int,
     client_data: ClientUpdate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(require_any_role(["user", "manager"]))
 ):
     """Mettre à jour un client"""
     try:

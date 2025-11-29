@@ -69,7 +69,7 @@ async function loadClients() {
         
         // Utiliser safeLoadData pour éviter les chargements infinis
         const response = await safeLoadData(
-            () => axios.get('/api/clients/'),
+            () => axios.get('/api/clients/', { params: { limit: 1000 } }),
             {
                 timeout: 8000,
                 fallbackData: [],
@@ -168,7 +168,7 @@ function displayClients() {
 }
 
 // Filtrer les clients
-function filterClients() {
+async function filterClients() {
     const searchTerm = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
     const city = (document.getElementById('cityFilter')?.value || '').toLowerCase().trim();
     const country = (document.getElementById('countryFilter')?.value || '').toLowerCase().trim();
@@ -177,7 +177,18 @@ function filterClients() {
     const createdFrom = document.getElementById('createdFrom')?.value || '';
     const createdTo = document.getElementById('createdTo')?.value || '';
 
-    filteredClients = (clients || []).filter(client => {
+    // Source de base: si recherche saisie, interroger le serveur pour couvrir tous les enregistrements
+    let baseList = clients || [];
+    if (searchTerm) {
+        try {
+            const { data } = await axios.get('/api/clients/', { params: { search: searchTerm, limit: 1000 } });
+            baseList = data.items || data || [];
+        } catch (e) {
+            baseList = clients || [];
+        }
+    }
+
+    filteredClients = baseList.filter(client => {
         // Recherche globale
         if (searchTerm) {
             const hay = [client.name, client.email, client.phone, client.contact_person, client.city]
