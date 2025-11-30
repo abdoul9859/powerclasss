@@ -156,4 +156,4 @@ static/uploads/
 credentials/
 *-credentials.json
 *service-account*.json
-google-sheets-*.json
+google-sheets-*.json.env
