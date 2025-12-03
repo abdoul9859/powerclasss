@@ -178,6 +178,23 @@ async def get_daily_recap_stats(
         # Chiffre d'affaires encaissé net (aligné avec la caisse): paiements reçus - achats quotidiens
         net_revenue = float(total_payments) - float(total_daily_purchases)
         
+        # Préparer un mapping facture_id -> numéro pour les mouvements de stock liés à une facture
+        try:
+            invoice_ids_from_stock = {
+                int(s.reference_id)
+                for s in list(stock_in or []) + list(stock_out or [])
+                if getattr(s, "reference_type", None) == "INVOICE" and getattr(s, "reference_id", None)
+            }
+            invoices_map = {}
+            if invoice_ids_from_stock:
+                rows = db.query(Invoice.invoice_id, Invoice.invoice_number).filter(
+                    Invoice.invoice_id.in_(invoice_ids_from_stock)
+                ).all()
+                invoices_map = {int(i): num for i, num in rows}
+        except Exception as e:
+            logging.error(f"Erreur lors de la préparation du mapping factures pour les mouvements de stock: {e}")
+            invoices_map = {}
+
         # === STATS COMPLÉMENTAIRES (DETTES, DASHBOARD) ===
         # On réutilise les endpoints internes pour ne pas dupliquer la logique métier.
         try:
@@ -232,6 +249,7 @@ async def get_daily_recap_stats(
                 "list": [
                     {
                         "id": p.payment_id,
+                        "invoice_id": (p.invoice.invoice_id if p.invoice else None),
                         "invoice_number": p.invoice.invoice_number if p.invoice else f"Paiement #{p.payment_id}",
                         "amount": float(p.amount or 0),
                         "method": p.payment_method,
@@ -282,6 +300,9 @@ async def get_daily_recap_stats(
                         "product_name": s.product.name if s.product else "Produit inconnu",
                         "quantity": s.quantity,
                         "reference": s.reference_type,
+                        "reference_id": s.reference_id,
+                        "invoice_id": int(s.reference_id) if s.reference_type == "INVOICE" and s.reference_id else None,
+                        "invoice_number": invoices_map.get(int(s.reference_id)) if s.reference_type == "INVOICE" and s.reference_id else None,
                         "notes": s.notes,
                         "time": s.created_at.strftime("%H:%M") if s.created_at else ""
                     }
@@ -293,6 +314,9 @@ async def get_daily_recap_stats(
                         "product_name": s.product.name if s.product else "Produit inconnu",
                         "quantity": s.quantity,
                         "reference": s.reference_type,
+                        "reference_id": s.reference_id,
+                        "invoice_id": int(s.reference_id) if s.reference_type == "INVOICE" and s.reference_id else None,
+                        "invoice_number": invoices_map.get(int(s.reference_id)) if s.reference_type == "INVOICE" and s.reference_id else None,
                         "notes": s.notes,
                         "time": s.created_at.strftime("%H:%M") if s.created_at else ""
                     }

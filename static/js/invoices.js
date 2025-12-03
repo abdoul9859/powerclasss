@@ -189,7 +189,6 @@ function setupEventListeners() {
             }
         });
     }
-
     // Quick client modal
     document.getElementById('openQuickClientBtn')?.addEventListener('click', () => {
         new bootstrap.Modal(document.getElementById('clientQuickModal')).show();
@@ -1310,7 +1309,7 @@ function updateInvoiceItemsDisplay() {
             <td>
                 <input type="number" class="form-control form-control-sm" value="${item.quantity}" min="0"
                        ${item.is_custom ? '' : (((productVariantsByProductId.get(Number(item.product_id)) || []).length > 0) ? 'disabled' : '')}
-                       onchange="updateItemQuantity(${item.id}, this.value)" oninput="updateItemQuantity(${item.id}, this.value)">
+                       onchange="updateItemQuantity(${item.id}, this.value)">
             </td>
             <td>
                 ${!item.is_custom && item.product_id ? (() => {
@@ -1491,7 +1490,8 @@ function updateItemQuantity(itemId, quantity) {
             const count = (item.scannedImeis || []).length;
             item.quantity = count > 0 ? count : 0;
         } else {
-            item.quantity = parseInt(quantity) || 1;
+            const parsed = parseInt(quantity, 10);
+            item.quantity = Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
         }
         item.total = item.quantity * item.unit_price;
         
@@ -2136,7 +2136,7 @@ async function preloadInvoiceIntoForm(invoiceId) {
             });
         }
     } catch(e) {
-        console.warn('Erreur lors de l\'extraction des métadonnées IMEI:', e);
+        console.warn("Erreur lors de l'extraction des métadonnées IMEI:", e);
     }
     
     // Reconstituer les items avec les IMEI groupés par produit

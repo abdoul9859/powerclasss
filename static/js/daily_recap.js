@@ -324,7 +324,7 @@ function updatePaymentsTable(payments) {
             <td>${payment.time}</td>
             <td>
                 ${payment.invoice_number ? `
-                    <button type="button" class="btn btn-link btn-sm p-0" onclick="goToInvoiceFromRecap('', '${escapeHtml(payment.invoice_number)}')">
+                    <button type="button" class="btn btn-link btn-sm p-0" onclick="goToInvoiceFromRecap('${payment.invoice_id || ''}', '${escapeHtml(payment.invoice_number)}')">
                         ${escapeHtml(payment.invoice_number)}
                     </button>
                 ` : escapeHtml(payment.invoice_number || '')}
@@ -375,7 +375,13 @@ function updateStockEntriesTable(entries) {
             <td>${entry.time}</td>
             <td>${escapeHtml(entry.product_name)}</td>
             <td><span class="badge bg-success">+${entry.quantity}</span></td>
-            <td>${escapeHtml(entry.reference || '')}</td>
+            <td>
+                ${entry.invoice_id || entry.invoice_number ? `
+                    <button type="button" class="btn btn-link btn-sm p-0" onclick="goToInvoiceFromRecap('${entry.invoice_id || ''}', '${escapeHtml(entry.invoice_number || '')}')">
+                        ${escapeHtml(entry.reference || 'INVOICE')}
+                    </button>
+                ` : escapeHtml(entry.reference || '')}
+            </td>
         </tr>
     `).join('');
 }
@@ -393,7 +399,13 @@ function updateStockExitsTable(exits) {
             <td>${exit.time}</td>
             <td>${escapeHtml(exit.product_name)}</td>
             <td><span class="badge bg-danger">-${exit.quantity}</span></td>
-            <td>${escapeHtml(exit.reference || '')}</td>
+            <td>
+                ${exit.invoice_id || exit.invoice_number ? `
+                    <button type="button" class="btn btn-link btn-sm p-0" onclick="goToInvoiceFromRecap('${exit.invoice_id || ''}', '${escapeHtml(exit.invoice_number || '')}')">
+                        ${escapeHtml(exit.reference || 'INVOICE')}
+                    </button>
+                ` : escapeHtml(exit.reference || '')}
+            </td>
         </tr>
     `).join('');
 }
@@ -522,9 +534,18 @@ function showSuccess(message) {
 
 function goToInvoiceFromRecap(invoiceId, invoiceNumber) {
     try {
-        const val = (invoiceNumber && String(invoiceNumber).trim()) || (invoiceId && String(invoiceId).trim());
-        if (!val) return;
-        sessionStorage.setItem('invoiceSearchQuery', val);
+        const idVal = invoiceId && String(invoiceId).trim();
+        const numVal = invoiceNumber && String(invoiceNumber).trim();
+        if (!idVal && !numVal) return;
+
+        // Si on connaît l'ID de la facture, demander explicitement l'ouverture du détail
+        if (idVal) {
+            sessionStorage.setItem('open_invoice_detail_id', idVal);
+        }
+        // Conserver le filtrage par numéro pour faciliter la navigation dans la liste
+        if (numVal) {
+            sessionStorage.setItem('invoiceSearchQuery', numVal);
+        }
     } catch (e) {}
     window.location.href = '/invoices';
 }
