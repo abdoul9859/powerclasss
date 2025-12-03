@@ -157,3 +157,4 @@ credentials/
 *-credentials.json
 *service-account*.json
 google-sheets-*.json.env
+.env
