@@ -1,3 +1,15 @@
+// Supprimer les backdrops orphelins et réinitialiser les styles body si aucun modal n'est visible
+function cleanupModalBackdrops() {
+    try {
+        const anyShown = document.querySelector('.modal.show');
+        if (!anyShown) {
+            document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+            document.body.classList.remove('modal-open');
+            try { document.body.style.removeProperty('overflow'); } catch(e) {}
+            try { document.body.style.removeProperty('padding-right'); } catch(e) {}
+        }
+    } catch (e) { /* ignore */ }
+}
 // Gestion des factures
 let currentPage = 1;
 const itemsPerPage = 100;
@@ -151,6 +163,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }, 200);
         }
     } catch (e) {}
+
+    // Nettoyage global des backdrops Bootstrap après fermeture d'un modal
+    try {
+        document.addEventListener('hidden.bs.modal', () => {
+            cleanupModalBackdrops();
+        });
+    } catch (e) { /* ignore */ }
 });
 
 function setupEventListeners() {
@@ -1582,6 +1601,12 @@ function calculateTotals() {
 // Sauvegarder une facture
 async function saveInvoice(status) {
     try {
+        // UI lock: prevent double submit and indicate progress
+        const modalEl = document.getElementById('invoiceModal');
+        const footerButtons = modalEl ? modalEl.querySelectorAll('.modal-footer button, .modal-footer a') : [];
+        const prevStates = [];
+        try { footerButtons.forEach(btn => { prevStates.push([btn, btn.disabled, btn.innerHTML]); btn.disabled = true; }); } catch(e) {}
+        document.body.style.cursor = 'wait';
         const invoiceData = {
             invoice_number: document.getElementById('invoiceNumber').value,
             client_id: parseInt(document.getElementById('clientSelect').value),
@@ -1690,6 +1715,12 @@ async function saveInvoice(status) {
             throw new Error(msg);
         }
 
+        // Fermer le modal immédiatement après la sauvegarde principale pour une UX réactive
+        try {
+            const instance = bootstrap.Modal.getInstance(modalEl) || (modalEl ? new bootstrap.Modal(modalEl) : null);
+            if (instance) instance.hide();
+        } catch (e) { /* ignore */ }
+
         // Attacher meta IMEIs dans notes pour l'aperçu
         try {
             const serialsMeta = invoiceItems
@@ -1706,13 +1737,13 @@ async function saveInvoice(status) {
             }
         } catch(e) {}
 
-        // Paiement immédiat si demandé
+        // Paiement immédiat si demandé: on ATTEND le POST paiement
         const doPay = document.getElementById('paymentNowSwitch')?.checked;
         if (doPay) {
             try {
                 const inv = responseData || {};
                 const invId = inv.invoice_id || inv.id || document.getElementById('invoiceId').value;
-await axios.post(`/api/invoices/${invId || ''}/payments`, {
+                await axios.post(`/api/invoices/${invId || ''}/payments`, {
                     amount: Math.round(parseFloat(document.getElementById('paymentNowAmount').value || '0')),
                     payment_method: document.getElementById('paymentNowMethod').value,
                     reference: document.getElementById('paymentNowRef').value || null
@@ -1720,20 +1751,25 @@ await axios.post(`/api/invoices/${invId || ''}/payments`, {
             } catch (e) { /* ignore payment error but continue */ }
         }
 
-        // Fermer le modal
-        const modal = bootstrap.Modal.getInstance(document.getElementById('invoiceModal'));
-        modal.hide();
-
         // Recharger la liste + rafraîchir produits/variantes pour refléter les ventes
         await loadInvoices();
         await loadStats();
         await loadProducts();
         
         showSuccess(invoiceId ? 'Facture modifiée avec succès' : 'Facture créée avec succès');
+        // Unlock UI using previous states
+        try { prevStates.forEach(([btn, prevDisabled, prevHtml]) => { btn.disabled = prevDisabled; if (prevHtml !== undefined) btn.innerHTML = prevHtml; }); } catch(e) {}
+        document.body.style.cursor = '';
         
     } catch (error) {
         console.error('Erreur lors de la sauvegarde:', error);
         showError(error.message || 'Erreur lors de la sauvegarde de la facture');
+    } finally {
+        // Ensure UI unlock if an error occurred before normal unlock
+        const modalEl = document.getElementById('invoiceModal');
+        const footerButtons = modalEl ? modalEl.querySelectorAll('.modal-footer button, .modal-footer a') : [];
+        try { footerButtons.forEach(btn => { btn.disabled = false; }); } catch(e) {}
+        document.body.style.cursor = '';
     }
 }
 
@@ -1964,7 +2000,15 @@ async function loadInvoiceDetail(invoiceId) {
 
     body.innerHTML = `
         <div class="mb-2"><strong>Numéro:</strong> ${escapeHtml(inv.invoice_number)}</div>
-        <div class="mb-2"><strong>Client:</strong> ${escapeHtml(client ? client.name : (inv.client_name || '-'))}</div>
+        <div class="mb-2"><strong>Client:</strong> ${(() => {
+            try {
+                const name = escapeHtml(client ? client.name : (inv.client_name || '-'));
+                if (inv.client_id) {
+                    return `<a href="/clients/detail?id=${inv.client_id}" class="text-decoration-none">${name}</a>`;
+                }
+                return name;
+            } catch (e) { return escapeHtml(inv.client_name || '-'); }
+        })()}</div>
         <div class="mb-2"><strong>Date:</strong> ${inv.date ? formatDate(inv.date) : '-'}</div>
         <div class="mb-2"><strong>Échéance:</strong> ${inv.due_date ? formatDate(inv.due_date) : '-'}</div>
         ${(inv.payments && inv.payments.length) ? `
@@ -1973,19 +2017,28 @@ async function loadInvoiceDetail(invoiceId) {
             <table class=\"table table-sm\"> 
                 <thead><tr><th>Date</th><th class=\"text-end\">Montant</th><th>Mode</th><th>Réf.</th><th></th></tr></thead>
                 <tbody>
-                ${inv.payments.map(p => `
-                    <tr>
-                        <td>${formatDateTime(p.payment_date || p.date || '-') }</td>
-                        <td class=\"text-end\">${formatCurrency(p.amount || 0)}</td>
-                        <td>${escapeHtml(p.payment_method || '-')}</td>
-                        <td>${escapeHtml(p.reference || '-')}</td>
-                        <td class=\"text-end\">
-                            <button type=\"button\" class=\"btn btn-sm btn-outline-danger\" title=\"Supprimer le paiement\" onclick=\"deletePaymentFromInvoiceDetail(${p.payment_id || 0}, ${invoiceId})\">
-                                <i class=\"bi bi-trash\"></i>
-                            </button>
-                        </td>
-                    </tr>
-                `).join('')}
+                ${(() => {
+                    try {
+                        const sorted = [...(inv.payments || [])].sort((a, b) => {
+                            const da = new Date(a.payment_date || a.date || 0).getTime();
+                            const db = new Date(b.payment_date || b.date || 0).getTime();
+                            return da - db; // tri chronologique croissant
+                        });
+                        return sorted.map(p => `
+                            <tr>
+                                <td>${formatDateTime(p.payment_date || p.date || '-') }</td>
+                                <td class=\"text-end\">${formatCurrency(p.amount || 0)}</td>
+                                <td>${escapeHtml(p.payment_method || '-')}</td>
+                                <td>${escapeHtml(p.reference || '-')}</td>
+                                <td class=\"text-end\">
+                                    <button type=\"button\" class=\"btn btn-sm btn-outline-danger\" title=\"Supprimer le paiement\" onclick=\"deletePaymentFromInvoiceDetail(${p.payment_id || 0}, ${invoiceId})\">
+                                        <i class=\"bi bi-trash\"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('');
+                    } catch (e) { return (inv.payments || []).map(() => '').join(''); }
+                })()}
                 </tbody>
             </table>
         </div>` : ''}
@@ -2311,6 +2364,7 @@ async function savePayment() {
         const { data: payRes } = await axios.post(`/api/invoices/${paymentData.invoice_id}/payments`, {
             amount: paymentData.amount,
             payment_method: paymentData.payment_method,
+            payment_date: paymentData.payment_date ? `${paymentData.payment_date}T00:00:00` : null,
             reference: paymentData.reference,
             notes: paymentData.notes
         });

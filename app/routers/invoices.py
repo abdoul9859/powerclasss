@@ -1099,6 +1099,8 @@ async def add_payment(
         invoice.remaining_amount = remaining - amount_dec
 
         # Mettre à jour le statut de façon cohérente avec tous les paiements
+        # IMPORTANT: flush avant le recalcul pour que la requête voie le nouveau paiement
+        db.flush()
         _recompute_invoice_payment_status(invoice, db)
         
         db.commit()

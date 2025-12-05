@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from sqlalchemy import func
-from ..database import get_db, Client, Invoice
+from ..database import get_db, Client, Invoice, ClientDebt
 from ..schemas import ClientCreate, ClientUpdate, ClientResponse
 from ..auth import get_current_user, require_any_role
 import logging
@@ -67,15 +67,29 @@ async def get_client_details(
         .all()
     )
 
-    # Dettes du client: la fonctionnalité dettes est simulée côté API debts.
-    # Ici, on retourne un tableau vide pour éviter une dépendance sur un modèle inexistant.
-    debts = []
+    # Créances manuelles du client
+    client_debts = db.query(ClientDebt).filter(ClientDebt.client_id == client_id).order_by(ClientDebt.date.desc()).all()
+    debts = [
+        {
+            "debt_id": d.debt_id,
+            "reference": d.reference,
+            "date": d.date,
+            "due_date": d.due_date,
+            "amount": float(d.amount or 0),
+            "paid_amount": float(d.paid_amount or 0),
+            "remaining_amount": float(d.remaining_amount if d.remaining_amount is not None else (float(d.amount or 0) - float(d.paid_amount or 0))),
+            "status": d.status or ("paid" if (float(d.remaining_amount or (float(d.amount or 0) - float(d.paid_amount or 0))) <= 0) else ("partial" if float(d.paid_amount or 0) > 0 else "pending")),
+            "description": d.description,
+        }
+        for d in client_debts
+    ]
 
     # Agrégats
     total_invoiced = float(sum([float(i.total or 0) for i in invoices]))
     total_paid = float(sum([float(i.paid_amount or 0) for i in invoices]))
     total_due = total_invoiced - total_paid
-    total_debts = float(sum([float(getattr(d, 'amount', 0) or 0) for d in debts]))
+    # Total des créances manuelles (reste à payer)
+    total_debts = float(sum([float(getattr(d, 'remaining_amount', 0) or 0) for d in debts]))
 
     return {
         "client": ClientResponse.from_orm(client),
@@ -97,16 +111,7 @@ async def get_client_details(
             }
             for inv in invoices
         ],
-        "debts": [
-            {
-                "debt_id": getattr(d, 'debt_id', None),
-                "amount": float(getattr(d, 'amount', 0) or 0),
-                "due_date": getattr(d, 'due_date', None),
-                "status": getattr(d, 'status', None),
-                "notes": getattr(d, 'notes', None)
-            }
-            for d in debts
-        ]
+        "debts": debts
     }
 
 @router.post("/", response_model=ClientResponse)

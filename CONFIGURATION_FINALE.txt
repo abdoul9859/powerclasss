@@ -1,0 +1,123 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║     ✅ CONFIGURATION TWILIO - RAPPELS TOUS LES 3 JOURS             ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+📅 Date: 4 Décembre 2025
+🎯 Objectif: Rappels automatiques de dettes tous les 3 jours
+✅ Statut: CONFIGURÉ ET TESTÉ
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 CONFIGURATION ACTUELLE (.env)
+
+  ENABLE_DEBT_REMINDERS=true           ✅ Système activé
+  DEBT_REMINDER_CHANNEL=sms            ✅ Envoi par SMS
+  DEBT_REMINDER_DRY_RUN=true           ⚠️  Mode test (false pour prod)
+  DEBT_REMINDER_INTERVAL_SECONDS=21600 ✅ Vérification toutes les 6h
+  DEBT_REMINDER_PERIOD_DAYS=3          ✅ Rappel tous les 3 jours
+  DEFAULT_COUNTRY_CODE=+221            ✅ Sénégal
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔄 COMPORTEMENT DU SYSTÈME
+
+  Jour 0  → 📨 1er rappel envoyé
+  Jour 1  → ⏳ Pas de rappel (< 3 jours)
+  Jour 2  → ⏳ Pas de rappel (< 3 jours)
+  Jour 3  → 📨 2ème rappel envoyé
+  Jour 6  → 📨 3ème rappel envoyé
+  Jour 9  → 📨 4ème rappel envoyé
+  ...
+  Jusqu'au paiement complet ✅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 TEST EFFECTUÉ
+
+  ✅ 17 clients détectés avec dettes en retard
+  ✅ Messages formatés correctement
+  ✅ Numéros normalisés (+221)
+  ✅ Système 100% fonctionnel
+
+  Exemples:
+  • Haziza Apple: 2 500 XOF
+  • Fa Guité: 127 000 XOF
+  • Grand Ndiaye: 235 000 XOF
+  • Cheikh ibra: 16 000 XOF
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 MISE EN PRODUCTION
+
+  1. Modifier .env:
+     DEBT_REMINDER_DRY_RUN=false
+
+  2. Redémarrer:
+     docker compose restart app
+
+  3. Monitorer:
+     docker logs -f powerclasss_app | grep DebtNotifier
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🛠️ COMMANDES UTILES
+
+  # Test en mode DRY_RUN
+  docker exec powerclasss_app python3 test_debt_simple.py
+
+  # Menu interactif
+  docker exec powerclasss_app python3 test_rappel_3jours.py
+
+  # Voir les logs
+  docker logs -f powerclasss_app | grep DebtNotifier
+
+  # Vérifier la config
+  docker exec powerclasss_app cat /app/.env | grep DEBT_REMINDER
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💰 ESTIMATION DES COÛTS
+
+  SMS Twilio: ~$0.0075 par SMS
+  17 clients: ~$0.13 par cycle
+  10 rappels/mois: ~$1.30/mois maximum
+  Avec paiements rapides: ~$0.65/mois
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 DOCUMENTATION CRÉÉE
+
+  ✅ INSTRUCTIONS_TWILIO.md - Guide complet
+  ✅ RAPPELS_AUTOMATIQUES.md - Fonctionnement détaillé
+  ✅ TIMELINE_RAPPELS.md - Timeline visuelle
+  ✅ RESUME_CONFIGURATION_TWILIO.md - Résumé complet
+  ✅ test_debt_simple.py - Script de test rapide
+  ✅ test_twilio.py - Test SMS direct
+  ✅ test_rappel_3jours.py - Menu interactif
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ CHECKLIST
+
+  [✅] Configuration Twilio
+  [✅] Période de 3 jours
+  [✅] Vérification toutes les 6h
+  [✅] Test en mode DRY_RUN
+  [✅] Documentation complète
+  [✅] Scripts de test
+  [⏳] Activer mode production (DEBT_REMINDER_DRY_RUN=false)
+  [⏳] Monitoring 24h
+  [⏳] Ajustements si nécessaire
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎉 SYSTÈME PRÊT POUR LA PRODUCTION !
+
+Le système de rappels automatiques est configuré et testé.
+Les clients avec dettes recevront un SMS tous les 3 jours jusqu'au paiement.
+
+Pour activer: Mettre DEBT_REMINDER_DRY_RUN=false et redémarrer.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
